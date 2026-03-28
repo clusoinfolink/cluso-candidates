@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { BellRing, LogOut, Settings, Sparkles } from "lucide-react";
-import { ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  Bell,
+  BellRing,
+  FileSignature,
+  ListChecks,
+  LogOut,
+  Settings,
+  Sparkles,
+  LayoutDashboard,
+  type LucideIcon,
+} from "lucide-react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalUser } from "@/lib/types";
 import { BlockCard } from "@/components/ui/blocks";
 
@@ -20,12 +30,16 @@ type NavItem = {
   label: string;
 };
 
-const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Overview" },
-  { href: "/dashboard/orders", label: "Forms" },
-  { href: "/dashboard/requests", label: "History" },
-  { href: "/dashboard/settings", label: "Settings" },
+type IconNavItem = NavItem & { icon: LucideIcon };
+
+const navItems: IconNavItem[] = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/orders", label: "Forms", icon: FileSignature },
+  { href: "/dashboard/requests", label: "History", icon: ListChecks },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
+
+const PREFETCH_ROUTES = new Set(["/dashboard/orders"]);
 
 function isNavActive(pathname: string, href: string) {
   if (href === "/dashboard") {
@@ -37,59 +51,178 @@ function isNavActive(pathname: string, href: string) {
 
 export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalFrameProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const visibleNav = navItems;
+
+  const prefetchNavRoute = useCallback((href: string) => {
+    if (!PREFETCH_ROUTES.has(href)) {
+      return;
+    }
+
+    router.prefetch(href);
+  }, [router]);
+
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationsSeen, setNotificationsSeen] = useState(false);
+  const notificationPanelRef = useRef<HTMLDivElement>(null);
+
+  const notificationItems = useMemo(
+    () => [
+      { id: "assign", title: "New Assignment", detail: "A new form was assigned to you." },
+      { id: "reminder", title: "Reminder", detail: "You have pending forms due soon." },
+    ],
+    [],
+  );
+
+  const unreadCount = notificationsSeen ? 0 : notificationItems.length;
+
+  useEffect(() => {
+    if (!notificationOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!notificationPanelRef.current) return;
+      if (!notificationPanelRef.current.contains(event.target as Node)) {
+        setNotificationOpen(false);
+      }
+    }
+
+    function handleKeyDown(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setNotificationOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [notificationOpen]);
 
   return (
     <main className="portal-shell">
-      <div className="dashboard-stack">
-        <BlockCard tone="accent" className="portal-banner" interactive>
-          <div className="portal-banner-content">
+      <div className="admin-layout">
+        <aside className="glass-card admin-sidebar" aria-label="Portal navigation menu">
+          <div className="sidebar-brand">
             <span className="portal-banner-icon" aria-hidden="true">
               <Sparkles size={16} />
             </span>
             <div>
-              <strong>{title}</strong>
-              <div className="block-subtitle">{subtitle}</div>
+              <strong>Cluso</strong>
+              <p>Candidate portal</p>
             </div>
           </div>
-          <div className="portal-banner-tag">
+
+          <nav className="portal-nav" aria-label="Portal sections">
+            {visibleNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`portal-nav-link ${isNavActive(pathname, item.href) ? "active" : ""}`}
+                  onMouseEnter={() => prefetchNavRoute(item.href)}
+                  onFocus={() => prefetchNavRoute(item.href)}
+                  onClick={() => prefetchNavRoute(item.href)}
+                >
+                  <span className="portal-nav-icon" aria-hidden="true">
+                    <Icon size={16} />
+                  </span>
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="sidebar-footer-chip">
             <BellRing size={14} />
-            Live status updates
+            Live status
           </div>
-        </BlockCard>
+        </aside>
 
-        <BlockCard className="account-strip" interactive>
-          <div>
-            <strong>{me.name}</strong>
-            <div className="role-meta">
-              {me.email} (candidate)
+        <section className="admin-main">
+          <header className="glass-card admin-topbar">
+            <div className="admin-topbar-copy">
+              <h1>{title}</h1>
+              <p>{subtitle}</p>
             </div>
-          </div>
 
-          <div className="account-actions-wrap">
-            <Link href="/dashboard/settings" className="btn btn-ghost title-with-icon" aria-label="Open account settings">
-              <Settings size={16} />
-              Settings
-            </Link>
-            <button className="btn btn-secondary title-with-icon" onClick={onLogout} type="button">
-              <LogOut size={16} />
-              Logout
-            </button>
-          </div>
-        </BlockCard>
+            <div className="account-actions-wrap">
+              <div className="notification-wrap" ref={notificationPanelRef}>
+                <button
+                  type="button"
+                  className={`notification-bell ${notificationOpen ? "active" : ""}`}
+                  aria-label="Open notifications"
+                  aria-haspopup="dialog"
+                  aria-expanded={notificationOpen}
+                  aria-controls="portal-notifications-panel"
+                  onClick={() => {
+                    setNotificationOpen((prev) => {
+                      const nextOpen = !prev;
+                      if (nextOpen) setNotificationsSeen(true);
+                      return nextOpen;
+                    });
+                  }}
+                >
+                  <Bell size={18} />
+                  {unreadCount > 0 ? <span className="notification-badge">{unreadCount}</span> : null}
+                </button>
 
-        <nav className="portal-nav" aria-label="Portal sections">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`portal-nav-link ${isNavActive(pathname, item.href) ? "active" : ""}`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+                {notificationOpen ? (
+                  <section
+                    id="portal-notifications-panel"
+                    className="glass-card notification-panel"
+                    role="dialog"
+                    aria-label="Recent notifications"
+                  >
+                    <div className="notification-panel-head">
+                      <strong>Notifications</strong>
+                      <span>{notificationItems.length} updates</span>
+                    </div>
+                    <ul className="notification-list">
+                      {notificationItems.map((item) => (
+                        <li key={item.id} className="notification-item">
+                          <span className="notification-item-dot" aria-hidden="true" />
+                          <div>
+                            <strong>{item.title}</strong>
+                            <p>{item.detail}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+              </div>
 
-        {children}
+              <Link href="/dashboard/settings" className="btn btn-ghost title-with-icon" aria-label="Open settings">
+                <Settings size={16} />
+                Settings
+              </Link>
+              <button className="btn btn-secondary title-with-icon" onClick={onLogout} type="button">
+                <LogOut size={16} />
+                Logout
+              </button>
+            </div>
+          </header>
+
+          <BlockCard tone="accent" className="portal-banner" interactive>
+            <div className="portal-banner-content">
+              <span className="portal-banner-icon" aria-hidden="true">
+                <Sparkles size={16} />
+              </span>
+              <div>
+                <strong>{me.name}</strong>
+                <div className="block-subtitle">{me.email}</div>
+              </div>
+            </div>
+            <div className="portal-banner-tag">
+              <BellRing size={14} />
+              Live status updates
+            </div>
+          </BlockCard>
+
+          <div className="dashboard-stack">{children}</div>
+        </section>
       </div>
     </main>
   );

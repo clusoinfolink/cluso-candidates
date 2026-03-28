@@ -73,7 +73,7 @@ export default function OrdersPage() {
     let active = true;
 
     (async () => {
-      await refreshRequests();
+      await refreshRequests(false);
       if (active) {
         setRequestsReady(true);
       }
