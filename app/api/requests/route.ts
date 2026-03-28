@@ -36,6 +36,17 @@ function normalizeServiceId(serviceId: unknown) {
   return String(serviceId);
 }
 
+function candidateOwnershipFilter(candidateEmail: string, candidateUserId: string) {
+  return {
+    candidateEmail,
+    $or: [
+      { candidateUser: candidateUserId },
+      { candidateUser: null },
+      { candidateUser: { $exists: false } },
+    ],
+  };
+}
+
 export async function GET(req: NextRequest) {
   const auth = await getCandidateAuthFromRequest(req);
   if (!auth || auth.role !== "candidate") {
@@ -49,11 +60,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const candidateEmail = candidate.email.toLowerCase();
+  const candidateEmail = candidate.email.trim().toLowerCase();
 
-  const items = await VerificationRequest.find({
-    $or: [{ candidateUser: auth.userId }, { candidateEmail }],
-  })
+  const items = await VerificationRequest.find(
+    candidateOwnershipFilter(candidateEmail, auth.userId),
+  )
     .sort({ createdAt: -1 })
     .lean();
 
@@ -161,11 +172,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const candidateEmail = candidate.email.toLowerCase();
+  const candidateEmail = candidate.email.trim().toLowerCase();
 
   const requestDoc = await VerificationRequest.findOne({
     _id: parsed.data.requestId,
-    $or: [{ candidateUser: auth.userId }, { candidateEmail }],
+    ...candidateOwnershipFilter(candidateEmail, auth.userId),
   }).lean();
 
   if (!requestDoc) {

@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileSignature, Sparkles } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
 import { getAlertTone } from "@/lib/alerts";
@@ -63,6 +63,7 @@ export default function OrdersPage() {
     Record<string, Record<string, Record<string, DraftAnswer>>>
   >({});
   const [submittingRequestId, setSubmittingRequestId] = useState("");
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -89,6 +90,17 @@ export default function OrdersPage() {
     [items],
   );
 
+  useEffect(() => {
+    if (pendingItems.length === 0) {
+      setExpandedRequestId(null);
+      return;
+    }
+
+    if (expandedRequestId && !pendingItems.some((item) => item._id === expandedRequestId)) {
+      setExpandedRequestId(pendingItems[0]._id);
+    }
+  }, [pendingItems, expandedRequestId]);
+
   function getDraftAnswer(item: RequestItem, serviceId: string, field: ServiceFormField) {
     const draftValue = formDrafts[item._id]?.[serviceId]?.[field.question];
     if (draftValue) {
@@ -107,16 +119,6 @@ export default function OrdersPage() {
       fileSize: existingAnswer?.fileSize ?? null,
       fileData: existingAnswer?.fileData ?? "",
     };
-  }
-
-  if (loading || requestsLoading || !me || !requestsReady) {
-    return (
-      <main className="portal-shell">
-        <BlockCard tone="muted">
-          <p className="block-subtitle">Loading candidate forms...</p>
-        </BlockCard>
-      </main>
-    );
   }
 
   function onAnswerChange(
@@ -210,6 +212,16 @@ export default function OrdersPage() {
     await refreshRequests();
   }
 
+  if (loading || requestsLoading || !me || !requestsReady) {
+    return (
+      <main className="portal-shell">
+        <BlockCard tone="muted">
+          <p className="block-subtitle">Loading candidate forms...</p>
+        </BlockCard>
+      </main>
+    );
+  }
+
   return (
     <PortalFrame
       me={me}
@@ -217,147 +229,177 @@ export default function OrdersPage() {
       title="Candidate Forms"
       subtitle="Fill and submit assigned forms like Google Forms. Required questions are marked with *."
     >
-      {message ? <p className={`inline-alert ${getAlertTone(message)}`}>{message}</p> : null}
+      <div className="candidate-forms-quiet">
+        {message ? <p className={`inline-alert ${getAlertTone(message)}`}>{message}</p> : null}
 
-      {pendingItems.length === 0 ? (
-        <BlockCard as="article" tone="muted" interactive>
-          <BlockTitle
-            icon={<Sparkles size={14} />}
-            title="All Forms Submitted"
-            subtitle="No pending forms at the moment. Check History for approval updates."
-          />
-        </BlockCard>
-      ) : null}
-
-      <section className="dashboard-grid">
-        {pendingItems.map((item) => (
-          <BlockCard as="article" key={item._id} interactive>
+        {pendingItems.length === 0 ? (
+          <BlockCard as="article" tone="muted">
             <BlockTitle
-              icon={<FileSignature size={14} />}
-              title={item.customerName}
-              subtitle={`Request created ${new Date(item.createdAt).toLocaleDateString()} | ${item.selectedServices.map((service) => service.serviceName).join(", ")}`}
+              icon={<Sparkles size={14} />}
+              title="All Forms Submitted"
+              subtitle="No pending forms at the moment. Check History for approval updates."
             />
+          </BlockCard>
+        ) : null}
 
-            <div className="form-grid">
-              {item.serviceForms.map((serviceForm) => (
-                <div
-                  key={`${item._id}-${serviceForm.serviceId}`}
-                  style={{
-                    border: "1px solid #d4e2f2",
-                    borderRadius: "12px",
-                    padding: "0.75rem",
-                    background: "#f9fcff",
-                    display: "grid",
-                    gap: "0.75rem",
-                  }}
+        <section className="request-accordion-list">
+          {pendingItems.map((item) => {
+            const isExpanded = expandedRequestId === item._id;
+
+            return (
+              <BlockCard as="article" key={item._id}>
+                <button
+                  className="request-accordion-toggle"
+                  type="button"
+                  aria-expanded={isExpanded}
+                  onClick={() =>
+                    setExpandedRequestId((prev) =>
+                      prev === item._id ? null : item._id,
+                    )
+                  }
                 >
-                  <strong>{serviceForm.serviceName}</strong>
+                  <span className="request-accordion-main" style={{ alignItems: "start" }}>
+                    <span>
+                      <span className="request-accordion-candidate" style={{ display: "block" }}>
+                        {item.customerName}
+                      </span>
+                      <span className="request-accordion-status" style={{ display: "block", marginTop: "0.15rem" }}>
+                        Request created {new Date(item.createdAt).toLocaleDateString()} | {" "}
+                        {item.selectedServices.map((service) => service.serviceName).join(", ")}
+                      </span>
+                    </span>
+                  </span>
+                  <span className={`request-accordion-arrow${isExpanded ? " expanded" : ""}`}>
+                    <ChevronDown size={18} />
+                  </span>
+                </button>
 
-                  {serviceForm.fields.length === 0 ? (
-                    <p className="block-subtitle">No custom form fields for this service.</p>
-                  ) : (
-                    serviceForm.fields.map((field) => {
-                      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
-                      const labelText = `${field.question}${field.required ? " *" : ""}`;
-
-                      if (field.fieldType === "long_text") {
-                        return (
-                          <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
-                            <label className="label">{labelText}</label>
-                            <textarea
-                              className="input"
-                              rows={5}
-                              value={answer.value}
-                              onChange={(e) =>
-                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
-                                  ...answer,
-                                  value: e.target.value,
-                                })
-                              }
-                              style={{ minHeight: "120px", resize: "vertical" }}
-                              required={field.required}
-                            />
-                          </div>
-                        );
-                      }
-
-                      if (field.fieldType === "file") {
-                        return (
-                          <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
-                            <label className="label">{labelText}</label>
-                            <input
-                              className="input"
-                              type="file"
-                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                              onChange={(e) =>
-                                onFileChange(
-                                  item._id,
-                                  serviceForm.serviceId,
-                                  field.question,
-                                  e.target.files?.[0] ?? null,
-                                )
-                              }
-                              required={field.required && !answer.fileData}
-                            />
-                            <p style={{ margin: "0.35rem 0 0", color: "#4e6f90", fontSize: "0.86rem" }}>
-                              PDF, JPG, PNG only. Maximum size 5MB.
-                            </p>
-                            {answer.fileData ? (
-                              <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
-                                <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#1f5ea2", fontWeight: 700 }}>
-                                  {answer.fileName || "View uploaded file"}
-                                </a>
-                                {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      }
-
-                      return (
+                {isExpanded ? (
+                  <div className="request-accordion-details" style={{ marginTop: "0.2rem" }}>
+                    <div className="form-grid">
+                      {item.serviceForms.map((serviceForm) => (
                         <div
-                          key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
+                          key={`${item._id}-${serviceForm.serviceId}`}
                           style={{
+                            border: "1px solid #d4e2f2",
+                            borderRadius: "12px",
+                            padding: "0.75rem",
+                            background: "#f9fcff",
                             display: "grid",
-                            gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
-                            gap: "0.7rem",
-                            alignItems: "center",
+                            gap: "0.75rem",
                           }}
                         >
-                          <label className="label" style={{ marginBottom: 0 }}>
-                            {labelText}
-                          </label>
-                          <input
-                            className="input"
-                            type={field.fieldType === "number" ? "number" : "text"}
-                            value={answer.value}
-                            onChange={(e) =>
-                              onAnswerChange(item._id, serviceForm.serviceId, field.question, {
-                                ...answer,
-                                value: e.target.value,
-                              })
-                            }
-                            required={field.required}
-                          />
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              ))}
+                          <strong>{serviceForm.serviceName}</strong>
 
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled={submittingRequestId === item._id}
-                onClick={() => submitForm(item)}
-              >
-                {submittingRequestId === item._id ? "Submitting..." : "Submit Form To Admin"}
-              </button>
-            </div>
-          </BlockCard>
-        ))}
-      </section>
+                          {serviceForm.fields.length === 0 ? (
+                            <p className="block-subtitle">No custom form fields for this service.</p>
+                          ) : (
+                            serviceForm.fields.map((field) => {
+                              const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+                              const labelText = `${field.question}${field.required ? " *" : ""}`;
+
+                              if (field.fieldType === "long_text") {
+                                return (
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
+                                    <label className="label">{labelText}</label>
+                                    <textarea
+                                      className="input"
+                                      rows={5}
+                                      value={answer.value}
+                                      onChange={(e) =>
+                                        onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                          ...answer,
+                                          value: e.target.value,
+                                        })
+                                      }
+                                      style={{ minHeight: "120px", resize: "vertical" }}
+                                      required={field.required}
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (field.fieldType === "file") {
+                                return (
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
+                                    <label className="label">{labelText}</label>
+                                    <input
+                                      className="input"
+                                      type="file"
+                                      accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                      onChange={(e) =>
+                                        onFileChange(
+                                          item._id,
+                                          serviceForm.serviceId,
+                                          field.question,
+                                          e.target.files?.[0] ?? null,
+                                        )
+                                      }
+                                      required={field.required && !answer.fileData}
+                                    />
+                                    <p style={{ margin: "0.35rem 0 0", color: "#4e6f90", fontSize: "0.86rem" }}>
+                                      PDF, JPG, PNG only. Maximum size 5MB.
+                                    </p>
+                                    {answer.fileData ? (
+                                      <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
+                                        <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#1f5ea2", fontWeight: 700 }}>
+                                          {answer.fileName || "View uploaded file"}
+                                        </a>
+                                        {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                    gap: "0.7rem",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <label className="label" style={{ marginBottom: 0 }}>
+                                    {labelText}
+                                  </label>
+                                  <input
+                                    className="input"
+                                    type={field.fieldType === "number" ? "number" : "text"}
+                                    value={answer.value}
+                                    onChange={(e) =>
+                                      onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                        ...answer,
+                                        value: e.target.value,
+                                      })
+                                    }
+                                    required={field.required}
+                                  />
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      ))}
+
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        disabled={submittingRequestId === item._id}
+                        onClick={() => submitForm(item)}
+                      >
+                        {submittingRequestId === item._id ? "Submitting..." : "Submit Form To Admin"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </BlockCard>
+            );
+          })}
+        </section>
+      </div>
     </PortalFrame>
   );
 }

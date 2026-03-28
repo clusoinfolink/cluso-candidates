@@ -643,6 +643,31 @@ a {
   gap: 0.8rem;
 }
 
+.candidate-forms-quiet .block {
+  animation: none;
+}
+
+.candidate-forms-quiet .block::after {
+  display: none;
+}
+
+.candidate-forms-quiet .input,
+.candidate-forms-quiet .btn,
+.candidate-forms-quiet .request-accordion-toggle,
+.candidate-forms-quiet .request-accordion-arrow {
+  transition: none;
+}
+
+.candidate-forms-quiet .input:focus {
+  border-color: #9fbfdf;
+  box-shadow: none;
+}
+
+.candidate-forms-quiet .btn:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 .portal-banner {
   display: flex;
   align-items: center;
