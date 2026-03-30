@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
@@ -90,16 +90,17 @@ export default function OrdersPage() {
     [items],
   );
 
-  useEffect(() => {
+  const resolvedExpandedRequestId = useMemo(() => {
     if (pendingItems.length === 0) {
-      setExpandedRequestId(null);
-      return;
+      return null;
     }
 
-    if (expandedRequestId && !pendingItems.some((item) => item._id === expandedRequestId)) {
-      setExpandedRequestId(pendingItems[0]._id);
+    if (expandedRequestId && pendingItems.some((item) => item._id === expandedRequestId)) {
+      return expandedRequestId;
     }
-  }, [pendingItems, expandedRequestId]);
+
+    return pendingItems[0]._id;
+  }, [expandedRequestId, pendingItems]);
 
   function getDraftAnswer(item: RequestItem, serviceId: string, field: ServiceFormField) {
     const draftValue = formDrafts[item._id]?.[serviceId]?.[field.question];
@@ -244,7 +245,7 @@ export default function OrdersPage() {
 
         <section className="request-accordion-list">
           {pendingItems.map((item) => {
-            const isExpanded = expandedRequestId === item._id;
+            const isExpanded = resolvedExpandedRequestId === item._id;
 
             return (
               <BlockCard as="article" key={item._id}>
@@ -281,10 +282,10 @@ export default function OrdersPage() {
                         <div
                           key={`${item._id}-${serviceForm.serviceId}`}
                           style={{
-                            border: "1px solid #d4e2f2",
+                            border: "1px solid #E0E0E0",
                             borderRadius: "12px",
                             padding: "0.75rem",
-                            background: "#f9fcff",
+                            background: "#F8F9FA",
                             display: "grid",
                             gap: "0.75rem",
                           }}
@@ -337,12 +338,12 @@ export default function OrdersPage() {
                                       }
                                       required={field.required && !answer.fileData}
                                     />
-                                    <p style={{ margin: "0.35rem 0 0", color: "#4e6f90", fontSize: "0.86rem" }}>
+                                    <p style={{ margin: "0.35rem 0 0", color: "#6C757D", fontSize: "0.86rem" }}>
                                       PDF, JPG, PNG only. Maximum size 5MB.
                                     </p>
                                     {answer.fileData ? (
                                       <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
-                                        <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#1f5ea2", fontWeight: 700 }}>
+                                        <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#4A90E2", fontWeight: 700 }}>
                                           {answer.fileName || "View uploaded file"}
                                         </a>
                                         {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}

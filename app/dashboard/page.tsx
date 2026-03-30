@@ -23,6 +23,7 @@ type CountCard = {
   value: number;
   tone: string;
   icon: LucideIcon;
+  href: string;
 };
 
 export default function DashboardOverviewPage() {
@@ -66,10 +67,10 @@ export default function DashboardOverviewPage() {
   const approvedCount = items.filter((item) => item.status === "approved").length;
   const rejectedCount = items.filter((item) => item.status === "rejected").length;
   const cards: CountCard[] = [
-    { label: "Pending Forms", value: pendingFormsCount, tone: "portal-stat-sky", icon: FileSignature },
-    { label: "In Review", value: inReviewCount, tone: "portal-stat-amber", icon: Clock3 },
-    { label: "Verified", value: approvedCount, tone: "portal-stat-emerald", icon: CheckCircle2 },
-    { label: "Needs Update", value: rejectedCount, tone: "portal-stat-rose", icon: TriangleAlert },
+    { label: "Pending Forms", value: pendingFormsCount, tone: "portal-stat-sky", icon: FileSignature, href: "/dashboard/orders" },
+    { label: "In Review", value: inReviewCount, tone: "portal-stat-amber", icon: Clock3, href: "/dashboard/requests" },
+    { label: "Verified", value: approvedCount, tone: "portal-stat-emerald", icon: CheckCircle2, href: "/dashboard/requests" },
+    { label: "Needs Update", value: rejectedCount, tone: "portal-stat-rose", icon: TriangleAlert, href: "/dashboard/requests" },
   ];
   const recentItems = [...items]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -92,7 +93,12 @@ export default function DashboardOverviewPage() {
         {cards.map((card) => {
           const Icon = card.icon;
           return (
-            <article key={card.label} className={`portal-stat ${card.tone}`}>
+            <Link
+              key={card.label}
+              href={card.href}
+              className={`portal-stat portal-stat-link ${card.tone}`}
+              aria-label={`Open ${card.label.toLowerCase()}`}
+            >
               <div className="portal-stat-head">
                 <p className="portal-stat-value">{card.value}</p>
                 <span className="portal-stat-icon" aria-hidden="true">
@@ -100,7 +106,7 @@ export default function DashboardOverviewPage() {
                 </span>
               </div>
               <p className="portal-stat-label">{card.label}</p>
-            </article>
+            </Link>
           );
         })}
       </section>

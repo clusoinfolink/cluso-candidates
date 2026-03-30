@@ -144,10 +144,10 @@ export default function RequestsPage() {
                       <div
                         key={`${item._id}-${serviceResponse.serviceId}`}
                         style={{
-                          border: "1px solid #d8e7f8",
+                          border: "1px solid #E0E0E0",
                           borderRadius: "10px",
                           padding: "0.55rem 0.65rem",
-                          background: "#f9fcff",
+                          background: "#F8F9FA",
                         }}
                       >
                         <strong>{serviceResponse.serviceName}</strong>
@@ -160,7 +160,7 @@ export default function RequestsPage() {
                                   href={answer.fileData}
                                   target="_blank"
                                   rel="noreferrer"
-                                  style={{ color: "#1f5ea2", fontWeight: 700 }}
+                                  style={{ color: "#4A90E2", fontWeight: 700 }}
                                 >
                                   {answer.fileName || "Open attachment"}
                                 </a>
