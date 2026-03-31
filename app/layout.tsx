@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Cluso Candidates Portal",
+  title: "Cluso Infolink Candidates Portal",
   description: "Candidate portal for completing verification service forms",
 };
 
