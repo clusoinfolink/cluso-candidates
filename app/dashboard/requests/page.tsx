@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { ListChecks, Search } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
 
-export default function RequestsPage() {
+function RequestsPageContent() {
   const { me, loading, logout } = usePortalSession();
+  const searchParams = useSearchParams();
   const { items, loading: requestsLoading, refreshRequests } = useRequestsData();
   const [requestsReady, setRequestsReady] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [highlightedRequestId, setHighlightedRequestId] = useState("");
+  const focusRequestId = searchParams.get("requestId")?.trim() ?? "";
 
   useEffect(() => {
     if (!me) {
@@ -54,6 +59,31 @@ export default function RequestsPage() {
       return haystack.includes(normalizedSearch);
     });
   }, [items, normalizedSearch]);
+
+  useEffect(() => {
+    if (!focusRequestId || items.length === 0) {
+      return;
+    }
+
+    const targetRequest = items.find((item) => item._id === focusRequestId);
+    if (!targetRequest) {
+      return;
+    }
+
+    setSearchText("");
+    setHighlightedRequestId(focusRequestId);
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(`request-${focusRequestId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 60);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [focusRequestId, items]);
 
   if (loading || requestsLoading || !me || !requestsReady) {
     return (
@@ -104,7 +134,17 @@ export default function RequestsPage() {
       ) : (
         <section className="request-square-grid">
           {filteredItems.map((item) => (
-            <BlockCard as="article" key={item._id} interactive>
+            <BlockCard
+              as="article"
+              key={item._id}
+              id={`request-${item._id}`}
+              interactive
+              style={
+                highlightedRequestId === item._id
+                  ? { outline: "2px solid #4A90E2", outlineOffset: "2px" }
+                  : undefined
+              }
+            >
               <div className="block-title-row">
                 <h3 className="block-title" style={{ margin: 0 }}>
                   {item.customerName}
@@ -133,7 +173,30 @@ export default function RequestsPage() {
                 </div>
 
                 <div className="request-square-label">Admin Note</div>
-                <div className="request-square-value">{item.rejectionNote || "-"}</div>
+                <div className="request-square-value" style={{ display: "grid", gap: "0.45rem" }}>
+                  <span>{item.rejectionNote || "-"}</span>
+                  {item.status === "rejected" && item.candidateFormStatus === "pending" ? (
+                    <Link
+                      href={`/dashboard/orders?requestId=${encodeURIComponent(item._id)}`}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "fit-content",
+                        border: "1px solid #F5C2C7",
+                        borderRadius: "8px",
+                        padding: "0.3rem 0.55rem",
+                        background: "#FFF1F2",
+                        color: "#9F1239",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      Edit and Resubmit
+                    </Link>
+                  ) : null}
+                </div>
 
                 <div className="request-square-label">Submitted Answers</div>
                 <div className="request-square-value" style={{ display: "grid", gap: "0.35rem" }}>
@@ -180,5 +243,21 @@ export default function RequestsPage() {
         </section>
       )}
     </PortalFrame>
+  );
+}
+
+export default function RequestsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="portal-shell">
+          <BlockCard tone="muted">
+            <p className="block-subtitle">Loading request history...</p>
+          </BlockCard>
+        </main>
+      }
+    >
+      <RequestsPageContent />
+    </Suspense>
   );
 }

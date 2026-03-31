@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronDown, Sparkles } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
@@ -55,8 +56,13 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-export default function OrdersPage() {
+function buildRejectedFieldKey(serviceId: string, question: string) {
+  return `${serviceId}::${question.trim()}`;
+}
+
+function OrdersPageContent() {
   const { me, loading, logout } = usePortalSession();
+  const searchParams = useSearchParams();
   const { items, loading: requestsLoading, refreshRequests } = useRequestsData();
   const [requestsReady, setRequestsReady] = useState(false);
   const [formDrafts, setFormDrafts] = useState<
@@ -65,6 +71,7 @@ export default function OrdersPage() {
   const [submittingRequestId, setSubmittingRequestId] = useState("");
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const focusRequestId = searchParams.get("requestId")?.trim() ?? "";
 
   useEffect(() => {
     if (!me) {
@@ -101,6 +108,29 @@ export default function OrdersPage() {
 
     return pendingItems[0]._id;
   }, [expandedRequestId, pendingItems]);
+
+  useEffect(() => {
+    if (!focusRequestId || pendingItems.length === 0) {
+      return;
+    }
+
+    if (!pendingItems.some((item) => item._id === focusRequestId)) {
+      return;
+    }
+
+    setExpandedRequestId(focusRequestId);
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(`request-${focusRequestId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [focusRequestId, pendingItems]);
 
   function getDraftAnswer(item: RequestItem, serviceId: string, field: ServiceFormField) {
     const draftValue = formDrafts[item._id]?.[serviceId]?.[field.question];
@@ -246,6 +276,12 @@ export default function OrdersPage() {
         <section className="request-accordion-list">
           {pendingItems.map((item) => {
             const isExpanded = resolvedExpandedRequestId === item._id;
+            const rejectedFieldSet = new Set(
+              (item.customerRejectedFields ?? []).map((field) =>
+                buildRejectedFieldKey(field.serviceId, field.question),
+              ),
+            );
+            const hasRejectedFields = rejectedFieldSet.size > 0;
 
             return (
               <BlockCard as="article" key={item._id}>
@@ -277,6 +313,30 @@ export default function OrdersPage() {
 
                 {isExpanded ? (
                   <div className="request-accordion-details" style={{ marginTop: "0.2rem" }}>
+                    {hasRejectedFields ? (
+                      <div
+                        style={{
+                          marginBottom: "0.9rem",
+                          border: "1px solid #F5C2C7",
+                          borderRadius: "12px",
+                          background: "#FFF4F5",
+                          padding: "0.75rem 0.85rem",
+                          display: "grid",
+                          gap: "0.45rem",
+                        }}
+                      >
+                        <strong style={{ color: "#9F1239" }}>Correction requested</strong>
+                        <p style={{ margin: 0, color: "#6B1E31", fontSize: "0.88rem" }}>
+                          Update the highlighted fields below and submit again to move this request back to admin review.
+                        </p>
+                        {item.rejectionNote ? (
+                          <p style={{ margin: 0, color: "#7A2036", fontSize: "0.84rem" }}>
+                            <strong>Customer note:</strong> {item.rejectionNote}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="form-grid">
                       {item.serviceForms.map((serviceForm) => (
                         <div
@@ -298,11 +358,29 @@ export default function OrdersPage() {
                             serviceForm.fields.map((field) => {
                               const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                               const labelText = `${field.question}${field.required ? " *" : ""}`;
+                              const isRejectedField = rejectedFieldSet.has(
+                                buildRejectedFieldKey(serviceForm.serviceId, field.question),
+                              );
+                              const correctionStyle = isRejectedField
+                                ? {
+                                    border: "1px solid #F5C2C7",
+                                    borderRadius: "10px",
+                                    background: "#FFF7F7",
+                                    padding: "0.55rem 0.6rem",
+                                  }
+                                : undefined;
 
                               if (field.fieldType === "long_text") {
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
-                                    <label className="label">{labelText}</label>
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                    <label className="label">
+                                      {labelText}
+                                      {isRejectedField ? (
+                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
+                                          Needs correction
+                                        </span>
+                                      ) : null}
+                                    </label>
                                     <textarea
                                       className="input"
                                       rows={5}
@@ -322,8 +400,15 @@ export default function OrdersPage() {
 
                               if (field.fieldType === "file") {
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`}>
-                                    <label className="label">{labelText}</label>
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                    <label className="label">
+                                      {labelText}
+                                      {isRejectedField ? (
+                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
+                                          Needs correction
+                                        </span>
+                                      ) : null}
+                                    </label>
                                     <input
                                       className="input"
                                       type="file"
@@ -356,15 +441,33 @@ export default function OrdersPage() {
                               return (
                                 <div
                                   key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
-                                    gap: "0.7rem",
-                                    alignItems: "center",
-                                  }}
+                                  style={
+                                    isRejectedField
+                                      ? {
+                                          display: "grid",
+                                          gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                          gap: "0.7rem",
+                                          alignItems: "center",
+                                          border: "1px solid #F5C2C7",
+                                          borderRadius: "10px",
+                                          background: "#FFF7F7",
+                                          padding: "0.55rem 0.6rem",
+                                        }
+                                      : {
+                                          display: "grid",
+                                          gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                          gap: "0.7rem",
+                                          alignItems: "center",
+                                        }
+                                  }
                                 >
                                   <label className="label" style={{ marginBottom: 0 }}>
                                     {labelText}
+                                    {isRejectedField ? (
+                                      <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
+                                        Needs correction
+                                      </span>
+                                    ) : null}
                                   </label>
                                   <input
                                     className="input"
@@ -402,5 +505,21 @@ export default function OrdersPage() {
         </section>
       </div>
     </PortalFrame>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="portal-shell">
+          <BlockCard tone="muted">
+            <p className="block-subtitle">Loading candidate forms...</p>
+          </BlockCard>
+        </main>
+      }
+    >
+      <OrdersPageContent />
+    </Suspense>
   );
 }

@@ -127,6 +127,7 @@ export async function GET(req: NextRequest) {
       candidateSubmittedAt: item.candidateSubmittedAt ?? null,
       rejectionNote: item.rejectionNote ?? "",
       createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
       selectedServices,
       serviceForms: selectedServices.map((selectedService) => ({
         serviceId: selectedService.serviceId,
@@ -146,6 +147,12 @@ export async function GET(req: NextRequest) {
           fileSize: answer.fileSize ?? null,
           fileData: answer.fileData ?? "",
         })),
+      })),
+      customerRejectedFields: (item.customerRejectedFields ?? []).map((field) => ({
+        serviceId: normalizeServiceId(field.serviceId),
+        serviceName: field.serviceName,
+        question: field.question,
+        fieldType: field.fieldType,
       })),
     };
   });
@@ -329,6 +336,7 @@ export async function PATCH(req: NextRequest) {
     candidateUser: auth.userId,
     candidateEmail,
     candidateFormResponses,
+    customerRejectedFields: [],
     candidateFormStatus: "submitted",
     candidateSubmittedAt: new Date(),
     status: "pending",

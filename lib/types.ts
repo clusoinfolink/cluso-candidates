@@ -30,6 +30,13 @@ export type CandidateServiceResponse = {
   answers: CandidateAnswer[];
 };
 
+export type RejectedCandidateField = {
+  serviceId: string;
+  serviceName: string;
+  question: string;
+  fieldType: "text" | "long_text" | "number" | "file";
+};
+
 export type PortalUser = {
   id: string;
   name: string;
@@ -55,6 +62,7 @@ export type RequestItem = {
   candidateSubmittedAt?: string | null;
   rejectionNote: string;
   createdAt: string;
+  updatedAt?: string;
   selectedServices: ServiceOption[];
   serviceForms: Array<{
     serviceId: string;
@@ -62,4 +70,5 @@ export type RequestItem = {
     fields: ServiceFormField[];
   }>;
   candidateFormResponses: CandidateServiceResponse[];
+  customerRejectedFields?: RejectedCandidateField[];
 };
