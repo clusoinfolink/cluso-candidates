@@ -9,9 +9,7 @@ import {
   FileText,
   Clock3,
   CheckCircle2,
-  TriangleAlert,
-  ArrowRight,
-  Plus
+  TriangleAlert
 } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";

@@ -118,9 +118,11 @@ function OrdersPageContent() {
       return;
     }
 
-    setExpandedRequestId(focusRequestId);
+    const stateUpdateTimer = window.setTimeout(() => {
+      setExpandedRequestId(focusRequestId);
+    }, 0);
 
-    const timer = window.setTimeout(() => {
+    const scrollTimer = window.setTimeout(() => {
       document.getElementById(`request-${focusRequestId}`)?.scrollIntoView({
         behavior: "smooth",
         block: "center",
@@ -128,7 +130,8 @@ function OrdersPageContent() {
     }, 80);
 
     return () => {
-      window.clearTimeout(timer);
+      window.clearTimeout(stateUpdateTimer);
+      window.clearTimeout(scrollTimer);
     };
   }, [focusRequestId, pendingItems]);
 

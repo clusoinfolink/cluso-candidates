@@ -70,10 +70,12 @@ function RequestsPageContent() {
       return;
     }
 
-    setSearchText("");
-    setHighlightedRequestId(focusRequestId);
+    const stateUpdateTimer = window.setTimeout(() => {
+      setSearchText("");
+      setHighlightedRequestId(focusRequestId);
+    }, 0);
 
-    const timer = window.setTimeout(() => {
+    const scrollTimer = window.setTimeout(() => {
       document.getElementById(`request-${focusRequestId}`)?.scrollIntoView({
         behavior: "smooth",
         block: "center",
@@ -81,7 +83,8 @@ function RequestsPageContent() {
     }, 60);
 
     return () => {
-      window.clearTimeout(timer);
+      window.clearTimeout(stateUpdateTimer);
+      window.clearTimeout(scrollTimer);
     };
   }, [focusRequestId, items]);
 
