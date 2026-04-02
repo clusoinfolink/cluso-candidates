@@ -101,6 +101,9 @@ export async function GET(req: NextRequest) {
           question: field.question,
           fieldType: field.fieldType,
           required: Boolean(field.required),
+          minLength: typeof field.minLength === "number" ? field.minLength : null,
+          maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
+          forceUppercase: Boolean(field.forceUppercase),
         })),
       },
     ]),
@@ -190,8 +193,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Request not found." }, { status: 404 });
   }
 
-  if (requestDoc.status === "approved") {
-    return NextResponse.json({ error: "Approved requests cannot be edited." }, { status: 400 });
+  if (requestDoc.status === "approved" || requestDoc.status === "verified") {
+    return NextResponse.json(
+      { error: "Approved or verified requests cannot be edited." },
+      { status: 400 },
+    );
   }
 
   const selectedServices = (requestDoc.selectedServices ?? []).map((service) => ({
@@ -217,6 +223,9 @@ export async function PATCH(req: NextRequest) {
           question: field.question,
           fieldType: field.fieldType,
           required: Boolean(field.required),
+          minLength: typeof field.minLength === "number" ? field.minLength : null,
+          maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
+          forceUppercase: Boolean(field.forceUppercase),
         })),
       },
     ]),
@@ -261,6 +270,15 @@ export async function PATCH(req: NextRequest) {
       const fileSize = incomingAnswer.fileSize;
       const fileData = incomingAnswer.fileData ?? "";
       const isRequired = Boolean(field.required);
+      const supportsLengthConstraints =
+        field.fieldType === "text" || field.fieldType === "long_text";
+
+      let normalizedValue = value;
+      if (field.forceUppercase && normalizedValue) {
+        normalizedValue = normalizedValue.toUpperCase();
+      }
+
+      const trimmedValue = normalizedValue.trim();
 
       if (field.fieldType === "file") {
         if (isRequired && !fileData && !validationError) {
@@ -295,14 +313,40 @@ export async function PATCH(req: NextRequest) {
         };
       }
 
-      if (isRequired && !value.trim() && !validationError) {
+      if (isRequired && !trimmedValue && !validationError) {
         validationError = `${field.question} is required.`;
       }
 
-      if (field.fieldType === "number" && value.trim()) {
-        const parsedNumber = Number(value);
+      if (field.fieldType === "number" && trimmedValue) {
+        const parsedNumber = Number(trimmedValue);
         if (Number.isNaN(parsedNumber) && !validationError) {
           validationError = `${field.question} must be a valid number.`;
+        }
+      }
+
+      if (field.fieldType === "date" && trimmedValue) {
+        const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(trimmedValue);
+        const dateValue = new Date(`${trimmedValue}T00:00:00.000Z`);
+        if ((!isIsoDate || Number.isNaN(dateValue.getTime())) && !validationError) {
+          validationError = `${field.question} must be a valid date.`;
+        }
+      }
+
+      if (supportsLengthConstraints && trimmedValue) {
+        if (
+          typeof field.minLength === "number" &&
+          trimmedValue.length < field.minLength &&
+          !validationError
+        ) {
+          validationError = `${field.question} must be at least ${field.minLength} characters.`;
+        }
+
+        if (
+          typeof field.maxLength === "number" &&
+          trimmedValue.length > field.maxLength &&
+          !validationError
+        ) {
+          validationError = `${field.question} must be ${field.maxLength} characters or fewer.`;
         }
       }
 
@@ -310,7 +354,7 @@ export async function PATCH(req: NextRequest) {
         question: field.question,
         fieldType: field.fieldType,
         required: isRequired,
-        value,
+        value: normalizedValue,
         fileName: "",
         fileMimeType: "",
         fileSize: null,

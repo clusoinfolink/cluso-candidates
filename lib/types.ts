@@ -9,13 +9,16 @@ export type ServiceOption = {
 
 export type ServiceFormField = {
   question: string;
-  fieldType: "text" | "long_text" | "number" | "file";
+  fieldType: "text" | "long_text" | "number" | "file" | "date";
   required: boolean;
+  minLength?: number | null;
+  maxLength?: number | null;
+  forceUppercase?: boolean;
 };
 
 export type CandidateAnswer = {
   question: string;
-  fieldType: "text" | "long_text" | "number" | "file";
+  fieldType: "text" | "long_text" | "number" | "file" | "date";
   required?: boolean;
   value: string;
   fileName?: string;
@@ -34,7 +37,7 @@ export type RejectedCandidateField = {
   serviceId: string;
   serviceName: string;
   question: string;
-  fieldType: "text" | "long_text" | "number" | "file";
+  fieldType: "text" | "long_text" | "number" | "file" | "date";
 };
 
 export type PortalUser = {
@@ -48,7 +51,7 @@ export type MeResponse = {
   user: PortalUser;
 };
 
-export type RequestStatus = "pending" | "approved" | "rejected";
+export type RequestStatus = "pending" | "approved" | "rejected" | "verified";
 
 export type RequestItem = {
   _id: string;

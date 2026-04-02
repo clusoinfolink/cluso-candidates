@@ -60,6 +60,47 @@ function buildRejectedFieldKey(serviceId: string, question: string) {
   return `${serviceId}::${question.trim()}`;
 }
 
+function supportsLengthConstraints(field: ServiceFormField) {
+  return field.fieldType === "text" || field.fieldType === "long_text";
+}
+
+function normalizeAnswerValue(field: ServiceFormField, rawValue: string) {
+  let nextValue = rawValue;
+
+  if (field.forceUppercase) {
+    nextValue = nextValue.toUpperCase();
+  }
+
+  if (
+    supportsLengthConstraints(field) &&
+    typeof field.maxLength === "number" &&
+    field.maxLength > 0
+  ) {
+    nextValue = nextValue.slice(0, field.maxLength);
+  }
+
+  return nextValue;
+}
+
+function getConstraintHint(field: ServiceFormField) {
+  if (!supportsLengthConstraints(field)) {
+    return "";
+  }
+
+  const hints: string[] = [];
+  if (typeof field.minLength === "number") {
+    hints.push(`Min ${field.minLength} chars`);
+  }
+  if (typeof field.maxLength === "number") {
+    hints.push(`Max ${field.maxLength} chars`);
+  }
+  if (field.forceUppercase) {
+    hints.push("ALL CAPS");
+  }
+
+  return hints.join(" | ");
+}
+
 function OrdersPageContent() {
   const { me, loading, logout } = usePortalSession();
   const searchParams = useSearchParams();
@@ -217,9 +258,11 @@ function OrdersPageContent() {
       serviceId: serviceForm.serviceId,
       answers: serviceForm.fields.map((field) => {
         const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+        const normalizedValue = normalizeAnswerValue(field, answer.value);
+
         return {
           question: field.question,
-          value: answer.value,
+          value: normalizedValue,
           fileName: answer.fileName,
           fileMimeType: answer.fileMimeType,
           fileSize: answer.fileSize,
@@ -372,6 +415,7 @@ function OrdersPageContent() {
                                     padding: "0.55rem 0.6rem",
                                   }
                                 : undefined;
+                              const constraintHint = getConstraintHint(field);
 
                               if (field.fieldType === "long_text") {
                                 return (
@@ -391,12 +435,19 @@ function OrdersPageContent() {
                                       onChange={(e) =>
                                         onAnswerChange(item._id, serviceForm.serviceId, field.question, {
                                           ...answer,
-                                          value: e.target.value,
+                                          value: normalizeAnswerValue(field, e.target.value),
                                         })
                                       }
+                                      minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                      maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                       style={{ minHeight: "120px", resize: "vertical" }}
                                       required={field.required}
                                     />
+                                    {constraintHint ? (
+                                      <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                        {constraintHint}
+                                      </p>
+                                    ) : null}
                                   </div>
                                 );
                               }
@@ -472,18 +523,38 @@ function OrdersPageContent() {
                                       </span>
                                     ) : null}
                                   </label>
-                                  <input
-                                    className="input"
-                                    type={field.fieldType === "number" ? "number" : "text"}
-                                    value={answer.value}
-                                    onChange={(e) =>
-                                      onAnswerChange(item._id, serviceForm.serviceId, field.question, {
-                                        ...answer,
-                                        value: e.target.value,
-                                      })
-                                    }
-                                    required={field.required}
-                                  />
+                                  <div style={{ display: "grid", gap: "0.3rem" }}>
+                                    <input
+                                      className="input"
+                                      type={
+                                        field.fieldType === "number"
+                                          ? "number"
+                                          : field.fieldType === "date"
+                                            ? "date"
+                                            : "text"
+                                      }
+                                      value={answer.value}
+                                      onChange={(e) =>
+                                        onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                          ...answer,
+                                          value: normalizeAnswerValue(field, e.target.value),
+                                        })
+                                      }
+                                      minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                      maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                      required={field.required}
+                                    />
+                                    {field.fieldType === "date" ? (
+                                      <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                        Pick a date from the calendar.
+                                      </p>
+                                    ) : null}
+                                    {constraintHint ? (
+                                      <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                        {constraintHint}
+                                      </p>
+                                    ) : null}
+                                  </div>
                                 </div>
                               );
                             })

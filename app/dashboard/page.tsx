@@ -36,7 +36,7 @@ export default function DashboardOverviewPage() {
 
   const pendingFormsCount = items.filter((item) => item.candidateFormStatus === "pending").length;
   const inReviewCount = items.filter((item) => item.candidateFormStatus === "submitted" && item.status === "pending").length;
-  const approvedCount = items.filter((item) => item.status === "approved").length;
+  const verifiedCount = items.filter((item) => item.status === "verified").length;
   const rejectedCount = items.filter((item) => item.status === "rejected").length;
   
   const recentItems = [...items]
@@ -86,7 +86,7 @@ export default function DashboardOverviewPage() {
             <CheckCircle2 size={24} />
           </div>
           <div className="portal-stat-info">
-            <span className="portal-stat-value">{approvedCount}</span>
+            <span className="portal-stat-value">{verifiedCount}</span>
             <span className="portal-stat-label">Verified</span>
           </div>
         </Link>
@@ -138,7 +138,11 @@ export default function DashboardOverviewPage() {
                 </div>
                 <div className="recent-request-right">
                   <span className={`status-pill status-pill-${item.status}`}>
-                    {item.candidateFormStatus === "pending" ? "form pending" : item.status}
+                    {item.candidateFormStatus === "pending"
+                      ? "form pending"
+                      : item.status === "approved"
+                        ? "approved by partner"
+                        : item.status}
                   </span>
                   <span className="recent-request-meta">
                     {new Date(item.createdAt).toLocaleDateString()}

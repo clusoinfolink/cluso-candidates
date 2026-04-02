@@ -65,9 +65,16 @@ async function fetchRequestsForNotifications() {
 }
 
 function getCandidateNotificationContent(item: RequestItem) {
+  if (item.status === "verified") {
+    return {
+      title: "Request verified",
+      detail: `${item.customerName} completed your verification`,
+    };
+  }
+
   if (item.status === "approved") {
     return {
-      title: "Request approved",
+      title: "Request approved by partner",
       detail: `${item.customerName} approved your verification request`,
     };
   }
@@ -402,7 +409,9 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
                     ) : (
                       unreadNotifications.map((notification) => {
                         const tone =
-                          notification.status === "approved"
+                          notification.status === "verified"
+                            ? { border: "#9DDCCB", background: "#E8F8F3" }
+                            : notification.status === "approved"
                             ? { border: "#BFE8C9", background: "#ECF8EF" }
                             : notification.status === "rejected"
                               ? { border: "#F5C2C7", background: "#FDF2F3" }
