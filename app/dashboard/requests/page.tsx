@@ -5,9 +5,33 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { ListChecks, Search } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
-import { BlockCard, BlockTitle } from "@/components/ui/blocks";
+import { BlockCard } from "@/components/ui/blocks";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
+
+function parseRepeatableAnswerValues(rawValue: string, repeatable?: boolean) {
+  if (!repeatable) {
+    return [];
+  }
+
+  const trimmedValue = rawValue.trim();
+  if (!trimmedValue.startsWith("[")) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+  } catch {
+    return [];
+  }
+}
 
 function RequestsPageContent() {
   const { me, loading, logout } = usePortalSession();
@@ -248,25 +272,43 @@ function RequestsPageContent() {
                             {serviceResponse.serviceName}
                           </div>
                           <div className="px-4 py-3 space-y-3 divide-y divide-gray-100 dark:divide-gray-700/50">
-                            {serviceResponse.answers.map((answer, index) => (
-                              <div key={`${serviceResponse.serviceId}-${index}`} className="pt-3 first:pt-0">
-                                <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{answer.question}</span>
-                                <div className="text-sm text-gray-900 dark:text-gray-200 text-sm">
-                                  {answer.fieldType === "file" && answer.fileData ? (
-                                    <a
-                                      href={answer.fileData}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                                    >
-                                      📄 {answer.fileName || "Open attachment"}
-                                    </a>
-                                  ) : (
-                                    answer.value || <span className="text-gray-400 italic">No answer</span>
-                                  )}
+                            {serviceResponse.answers.map((answer, index) => {
+                              const repeatableValues = parseRepeatableAnswerValues(
+                                answer.value,
+                                answer.repeatable,
+                              );
+
+                              return (
+                                <div key={`${serviceResponse.serviceId}-${index}`} className="pt-3 first:pt-0">
+                                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{answer.question}</span>
+                                  <div className="text-sm text-gray-900 dark:text-gray-200 text-sm">
+                                    {answer.fieldType === "file" && answer.fileData ? (
+                                      <a
+                                        href={answer.fileData}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                                      >
+                                        📄 {answer.fileName || "Open attachment"}
+                                      </a>
+                                    ) : repeatableValues.length > 0 ? (
+                                      <ul className="list-disc pl-5 space-y-1">
+                                        {repeatableValues.map((entry, entryIndex) => (
+                                          <li
+                                            key={`${serviceResponse.serviceId}-${index}-entry-${entryIndex}`}
+                                            className="whitespace-pre-wrap break-words"
+                                          >
+                                            {entry}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      answer.value || <span className="text-gray-400 italic">No answer</span>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ))}

@@ -101,6 +101,33 @@ function getConstraintHint(field: ServiceFormField) {
   return hints.join(" | ");
 }
 
+function supportsRepeatable(field: ServiceFormField) {
+  return field.fieldType !== "file" && Boolean(field.repeatable);
+}
+
+function parseRepeatableAnswerValues(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return [""];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      const values = parsed.map((entry) => String(entry ?? ""));
+      return values.length > 0 ? values : [""];
+    }
+  } catch {
+    // Backward compatibility: fallback to treating value as single entry.
+  }
+
+  return [rawValue];
+}
+
+function serializeRepeatableAnswerValues(values: string[]) {
+  return JSON.stringify(values);
+}
+
 function OrdersPageContent() {
   const { me, loading, logout } = usePortalSession();
   const searchParams = useSearchParams();
@@ -258,10 +285,17 @@ function OrdersPageContent() {
       serviceId: serviceForm.serviceId,
       answers: serviceForm.fields.map((field) => {
         const answer = getDraftAnswer(item, serviceForm.serviceId, field);
-        const normalizedValue = normalizeAnswerValue(field, answer.value);
+        const normalizedValue = supportsRepeatable(field)
+          ? serializeRepeatableAnswerValues(
+              parseRepeatableAnswerValues(answer.value)
+                .map((entry) => normalizeAnswerValue(field, entry).trim())
+                .filter(Boolean),
+            )
+          : normalizeAnswerValue(field, answer.value);
 
         return {
           question: field.question,
+          repeatable: supportsRepeatable(field),
           value: normalizedValue,
           fileName: answer.fileName,
           fileMimeType: answer.fileMimeType,
@@ -418,6 +452,95 @@ function OrdersPageContent() {
                               const constraintHint = getConstraintHint(field);
 
                               if (field.fieldType === "long_text") {
+                                if (supportsRepeatable(field)) {
+                                  const repeatableValues = parseRepeatableAnswerValues(answer.value);
+
+                                  return (
+                                    <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                      <label className="label">
+                                        {labelText}
+                                        {isRejectedField ? (
+                                          <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
+                                            Needs correction
+                                          </span>
+                                        ) : null}
+                                      </label>
+                                      <div style={{ display: "grid", gap: "0.55rem" }}>
+                                        {repeatableValues.map((entryValue, entryIndex) => (
+                                          <div
+                                            key={`${item._id}-${serviceForm.serviceId}-${field.question}-${entryIndex}`}
+                                            style={{
+                                              border: "1px solid #DEE2E6",
+                                              borderRadius: "10px",
+                                              padding: "0.55rem",
+                                              background: "#FFFFFF",
+                                              display: "grid",
+                                              gap: "0.45rem",
+                                            }}
+                                          >
+                                            <textarea
+                                              className="input"
+                                              rows={5}
+                                              value={entryValue}
+                                              onChange={(e) => {
+                                                const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
+                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                  ...answer,
+                                                  value: serializeRepeatableAnswerValues(nextValues),
+                                                });
+                                              }}
+                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                              style={{ minHeight: "120px", resize: "vertical" }}
+                                              required={field.required}
+                                            />
+                                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                              <button
+                                                className="btn btn-secondary"
+                                                type="button"
+                                                style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                                disabled={repeatableValues.length === 1}
+                                                onClick={() => {
+                                                  const nextValues = parseRepeatableAnswerValues(answer.value).filter(
+                                                    (_value, idx) => idx !== entryIndex,
+                                                  );
+                                                  onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                    ...answer,
+                                                    value: serializeRepeatableAnswerValues(nextValues),
+                                                  });
+                                                }}
+                                              >
+                                                Remove
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+
+                                        <button
+                                          className="btn btn-secondary"
+                                          type="button"
+                                          style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
+                                          onClick={() => {
+                                            const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
+                                            onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                              ...answer,
+                                              value: serializeRepeatableAnswerValues(nextValues),
+                                            });
+                                          }}
+                                        >
+                                          + Add another entry
+                                        </button>
+                                      </div>
+                                      {constraintHint ? (
+                                        <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                          {constraintHint}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                }
+
                                 return (
                                   <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
                                     <label className="label">
@@ -492,6 +615,135 @@ function OrdersPageContent() {
                                 );
                               }
 
+                              const inputType =
+                                field.fieldType === "number"
+                                  ? "number"
+                                  : field.fieldType === "date"
+                                    ? "date"
+                                    : "text";
+
+                              if (supportsRepeatable(field)) {
+                                const repeatableValues = parseRepeatableAnswerValues(answer.value);
+
+                                return (
+                                  <div
+                                    key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
+                                    style={
+                                      isRejectedField
+                                        ? {
+                                            display: "grid",
+                                            gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                            gap: "0.7rem",
+                                            alignItems: "start",
+                                            border: "1px solid #F5C2C7",
+                                            borderRadius: "10px",
+                                            background: "#FFF7F7",
+                                            padding: "0.55rem 0.6rem",
+                                          }
+                                        : {
+                                            display: "grid",
+                                            gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                            gap: "0.7rem",
+                                            alignItems: "start",
+                                          }
+                                    }
+                                  >
+                                    <label className="label" style={{ marginBottom: 0 }}>
+                                      {labelText}
+                                      {isRejectedField ? (
+                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
+                                          Needs correction
+                                        </span>
+                                      ) : null}
+                                    </label>
+                                    <div style={{ display: "grid", gap: "0.45rem" }}>
+                                      {repeatableValues.map((entryValue, entryIndex) => (
+                                        <div
+                                          key={`${item._id}-${serviceForm.serviceId}-${field.question}-${entryIndex}`}
+                                          style={{
+                                            border: "1px solid #DEE2E6",
+                                            borderRadius: "10px",
+                                            background: "#FFFFFF",
+                                            padding: "0.5rem",
+                                            display: "grid",
+                                            gap: "0.35rem",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              display: "grid",
+                                              gridTemplateColumns: "minmax(0, 1fr) auto",
+                                              gap: "0.5rem",
+                                              alignItems: "center",
+                                            }}
+                                          >
+                                            <input
+                                              className="input"
+                                              type={inputType}
+                                              value={entryValue}
+                                              onChange={(e) => {
+                                                const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
+                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                  ...answer,
+                                                  value: serializeRepeatableAnswerValues(nextValues),
+                                                });
+                                              }}
+                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                              required={field.required}
+                                            />
+                                            <button
+                                              className="btn btn-secondary"
+                                              type="button"
+                                              style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                              disabled={repeatableValues.length === 1}
+                                              onClick={() => {
+                                                const nextValues = parseRepeatableAnswerValues(answer.value).filter(
+                                                  (_value, idx) => idx !== entryIndex,
+                                                );
+                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                  ...answer,
+                                                  value: serializeRepeatableAnswerValues(nextValues),
+                                                });
+                                              }}
+                                            >
+                                              Remove
+                                            </button>
+                                          </div>
+                                          {field.fieldType === "date" ? (
+                                            <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                              Pick a date from the calendar.
+                                            </p>
+                                          ) : null}
+                                        </div>
+                                      ))}
+
+                                      <button
+                                        className="btn btn-secondary"
+                                        type="button"
+                                        style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
+                                        onClick={() => {
+                                          const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
+                                          onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                            ...answer,
+                                            value: serializeRepeatableAnswerValues(nextValues),
+                                          });
+                                        }}
+                                      >
+                                        + Add another entry
+                                      </button>
+
+                                      {constraintHint ? (
+                                        <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                          {constraintHint}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               return (
                                 <div
                                   key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
@@ -526,13 +778,7 @@ function OrdersPageContent() {
                                   <div style={{ display: "grid", gap: "0.3rem" }}>
                                     <input
                                       className="input"
-                                      type={
-                                        field.fieldType === "number"
-                                          ? "number"
-                                          : field.fieldType === "date"
-                                            ? "date"
-                                            : "text"
-                                      }
+                                      type={inputType}
                                       value={answer.value}
                                       onChange={(e) =>
                                         onAnswerChange(item._id, serviceForm.serviceId, field.question, {

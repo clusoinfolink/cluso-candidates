@@ -11,6 +11,7 @@ export type ServiceFormField = {
   question: string;
   fieldType: "text" | "long_text" | "number" | "file" | "date";
   required: boolean;
+  repeatable?: boolean;
   minLength?: number | null;
   maxLength?: number | null;
   forceUppercase?: boolean;
@@ -20,6 +21,7 @@ export type CandidateAnswer = {
   question: string;
   fieldType: "text" | "long_text" | "number" | "file" | "date";
   required?: boolean;
+  repeatable?: boolean;
   value: string;
   fileName?: string;
   fileMimeType?: string;

@@ -22,6 +22,7 @@ const submitSchema = z.object({
         z.object({
           question: z.string().min(1),
           value: z.string().optional().default(""),
+          repeatable: z.boolean().optional().default(false),
           fileName: z.string().optional().default(""),
           fileMimeType: z.string().optional().default(""),
           fileSize: z.number().nullable().optional().default(null),
@@ -31,6 +32,53 @@ const submitSchema = z.object({
     }),
   ),
 });
+
+function supportsLengthConstraints(fieldType: string) {
+  return fieldType === "text" || fieldType === "long_text";
+}
+
+function applyAnswerFormatting(
+  rawValue: string,
+  field: {
+    fieldType: "text" | "long_text" | "number" | "file" | "date";
+    forceUppercase?: boolean;
+    maxLength?: number | null;
+  },
+) {
+  let nextValue = rawValue;
+
+  if (field.forceUppercase) {
+    nextValue = nextValue.toUpperCase();
+  }
+
+  if (
+    supportsLengthConstraints(field.fieldType) &&
+    typeof field.maxLength === "number" &&
+    field.maxLength > 0
+  ) {
+    nextValue = nextValue.slice(0, field.maxLength);
+  }
+
+  return nextValue;
+}
+
+function parseRepeatableValues(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item ?? ""));
+    }
+  } catch {
+    // Keep backward compatibility for old non-JSON values.
+  }
+
+  return [rawValue];
+}
 
 function normalizeServiceId(serviceId: unknown) {
   return String(serviceId);
@@ -101,6 +149,7 @@ export async function GET(req: NextRequest) {
           question: field.question,
           fieldType: field.fieldType,
           required: Boolean(field.required),
+          repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
           minLength: typeof field.minLength === "number" ? field.minLength : null,
           maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
           forceUppercase: Boolean(field.forceUppercase),
@@ -144,6 +193,7 @@ export async function GET(req: NextRequest) {
           question: answer.question,
           fieldType: answer.fieldType,
           required: Boolean(answer.required),
+          repeatable: Boolean(answer.repeatable),
           value: answer.value,
           fileName: answer.fileName ?? "",
           fileMimeType: answer.fileMimeType ?? "",
@@ -223,6 +273,7 @@ export async function PATCH(req: NextRequest) {
           question: field.question,
           fieldType: field.fieldType,
           required: Boolean(field.required),
+          repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
           minLength: typeof field.minLength === "number" ? field.minLength : null,
           maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
           forceUppercase: Boolean(field.forceUppercase),
@@ -239,6 +290,7 @@ export async function PATCH(req: NextRequest) {
           answer.question.trim(),
           {
             value: answer.value?.trim() ?? "",
+            repeatable: Boolean(answer.repeatable),
             fileName: answer.fileName?.trim() ?? "",
             fileMimeType: answer.fileMimeType?.trim().toLowerCase() ?? "",
             fileSize: answer.fileSize ?? null,
@@ -270,13 +322,10 @@ export async function PATCH(req: NextRequest) {
       const fileSize = incomingAnswer.fileSize;
       const fileData = incomingAnswer.fileData ?? "";
       const isRequired = Boolean(field.required);
-      const supportsLengthConstraints =
-        field.fieldType === "text" || field.fieldType === "long_text";
+      const isRepeatable = field.fieldType !== "file" && Boolean(field.repeatable);
+      const hasLengthConstraints = supportsLengthConstraints(field.fieldType);
 
-      let normalizedValue = value;
-      if (field.forceUppercase && normalizedValue) {
-        normalizedValue = normalizedValue.toUpperCase();
-      }
+      let normalizedValue = applyAnswerFormatting(value, field);
 
       const trimmedValue = normalizedValue.trim();
 
@@ -305,11 +354,74 @@ export async function PATCH(req: NextRequest) {
           question: field.question,
           fieldType: field.fieldType,
           required: isRequired,
+          repeatable: false,
           value: fileName || value,
           fileName,
           fileMimeType,
           fileSize,
           fileData,
+        };
+      }
+
+      if (isRepeatable) {
+        const parsedValues = parseRepeatableValues(value);
+        const normalizedValues = parsedValues
+          .map((entry) => applyAnswerFormatting(entry, field).trim())
+          .filter(Boolean);
+
+        if (isRequired && normalizedValues.length === 0 && !validationError) {
+          validationError = `${field.question} is required.`;
+        }
+
+        if (field.fieldType === "number") {
+          for (const entry of normalizedValues) {
+            const parsedNumber = Number(entry);
+            if (Number.isNaN(parsedNumber) && !validationError) {
+              validationError = `${field.question} must contain valid numbers.`;
+            }
+          }
+        }
+
+        if (field.fieldType === "date") {
+          for (const entry of normalizedValues) {
+            const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(entry);
+            const dateValue = new Date(`${entry}T00:00:00.000Z`);
+            if ((!isIsoDate || Number.isNaN(dateValue.getTime())) && !validationError) {
+              validationError = `${field.question} must contain valid dates.`;
+            }
+          }
+        }
+
+        if (hasLengthConstraints) {
+          for (const entry of normalizedValues) {
+            if (
+              typeof field.minLength === "number" &&
+              entry.length < field.minLength &&
+              !validationError
+            ) {
+              validationError = `${field.question} entries must be at least ${field.minLength} characters.`;
+            }
+
+            if (
+              typeof field.maxLength === "number" &&
+              entry.length > field.maxLength &&
+              !validationError
+            ) {
+              validationError = `${field.question} entries must be ${field.maxLength} characters or fewer.`;
+            }
+          }
+        }
+
+        return {
+          question: field.question,
+          fieldType: field.fieldType,
+          required: isRequired,
+          repeatable: true,
+          value: JSON.stringify(normalizedValues),
+          fileName: "",
+          fileMimeType: "",
+          fileSize: null,
+          fileData: "",
         };
       }
 
@@ -332,7 +444,7 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
-      if (supportsLengthConstraints && trimmedValue) {
+      if (hasLengthConstraints && trimmedValue) {
         if (
           typeof field.minLength === "number" &&
           trimmedValue.length < field.minLength &&
@@ -354,6 +466,7 @@ export async function PATCH(req: NextRequest) {
         question: field.question,
         fieldType: field.fieldType,
         required: isRequired,
+        repeatable: false,
         value: normalizedValue,
         fileName: "",
         fileMimeType: "",
