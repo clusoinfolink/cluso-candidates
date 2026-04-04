@@ -137,7 +137,7 @@ function RequestsPageContent() {
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">Request Timeline</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Track pending, partner decisions, and verified verification updates.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Track pending, enterprise decisions, and verified verification updates.</p>
             </div>
           </div>
           <span className="px-3 py-1 text-xs font-semibold tracking-wider text-blue-700 uppercase bg-blue-100 rounded-full dark:bg-blue-900/30 dark:text-blue-400">Candidate View</span>
@@ -202,7 +202,7 @@ function RequestsPageContent() {
                       {item.candidateFormStatus === "pending"
                         ? "form pending"
                         : item.status === "approved"
-                          ? "approved by partner"
+                          ? "approved by enterprise"
                           : item.status}
                     </span>
                   </div>

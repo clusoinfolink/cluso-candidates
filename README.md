@@ -10,7 +10,7 @@ Candidate-facing workspace for filling verification forms created from Cluso Adm
 - Candidate password change flow
 
 ## How candidate assignment works
-1. Customer creates an order with candidate email in customer portal.
+1. Enterprise creates an order with candidate email in enterprise portal.
 2. If no account exists for that email, a candidate account is auto-created.
 3. Candidate sees the selected service forms in this portal and submits answers.
 4. After submission, request appears in admin pending queue for processing.

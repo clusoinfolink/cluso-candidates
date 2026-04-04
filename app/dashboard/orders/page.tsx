@@ -411,7 +411,7 @@ function OrdersPageContent() {
                         </p>
                         {item.rejectionNote ? (
                           <p style={{ margin: 0, color: "#7A2036", fontSize: "0.84rem" }}>
-                            <strong>Customer note:</strong> {item.rejectionNote}
+                            <strong>Enterprise note:</strong> {item.rejectionNote}
                           </p>
                         ) : null}
                       </div>

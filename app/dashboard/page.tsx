@@ -141,7 +141,7 @@ export default function DashboardOverviewPage() {
                     {item.candidateFormStatus === "pending"
                       ? "form pending"
                       : item.status === "approved"
-                        ? "approved by partner"
+                        ? "approved by enterprise"
                         : item.status}
                   </span>
                   <span className="recent-request-meta">

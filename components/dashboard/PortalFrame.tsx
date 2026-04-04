@@ -74,7 +74,7 @@ function getCandidateNotificationContent(item: RequestItem) {
 
   if (item.status === "approved") {
     return {
-      title: "Request approved by partner",
+      title: "Request approved by enterprise",
       detail: `${item.customerName} approved your verification request`,
     };
   }
