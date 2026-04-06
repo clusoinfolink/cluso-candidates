@@ -2,7 +2,25 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  Sparkles,
+  NotebookPen,
+  House,
+  PenLine,
+  Calendar,
+  Phone,
+  MapPin,
+  IdCard,
+  FileText,
+  Briefcase,
+  User,
+  Mail,
+  Building2,
+  Globe,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
 import { getAlertTone } from "@/lib/alerts";
@@ -12,11 +30,15 @@ import { RequestItem, ServiceFormField } from "@/lib/types";
 
 type DraftAnswer = {
   value: string;
+  notApplicable: boolean;
+  notApplicableText: string;
   fileName: string;
   fileMimeType: string;
   fileSize: number | null;
   fileData: string;
 };
+
+type RequestServiceForm = RequestItem["serviceForms"][number];
 
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "application/pdf",
@@ -24,10 +46,81 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/png",
 ]);
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_QUESTION_ICON_KEY = "diary";
+
+const QUESTION_ICON_COMPONENTS: Record<string, LucideIcon> = {
+  diary: NotebookPen,
+  house: House,
+  pen: PenLine,
+  calendar: Calendar,
+  phone: Phone,
+  location: MapPin,
+  "id-card": IdCard,
+  document: FileText,
+  work: Briefcase,
+  person: User,
+  email: Mail,
+  company: Building2,
+  global: Globe,
+  security: ShieldCheck,
+};
+
+function resolveQuestionIcon(iconKey?: string) {
+  const normalized = iconKey?.trim().toLowerCase() ?? "";
+
+  if (normalized === "none") {
+    return null;
+  }
+
+  return QUESTION_ICON_COMPONENTS[normalized] ?? QUESTION_ICON_COMPONENTS[DEFAULT_QUESTION_ICON_KEY];
+}
+
+function QuestionPrompt({
+  iconKey,
+  labelText,
+  isRejectedField,
+}: {
+  iconKey?: string;
+  labelText: string;
+  isRejectedField: boolean;
+}) {
+  const Icon = resolveQuestionIcon(iconKey);
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+      {Icon ? (
+        <span
+          style={{
+            width: "1.3rem",
+            height: "1.3rem",
+            borderRadius: "999px",
+            border: "1px solid #D5DEEE",
+            background: "#EEF2FF",
+            color: "#334155",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Icon size={13} />
+        </span>
+      ) : null}
+      <span>{labelText}</span>
+      {isRejectedField ? (
+        <span style={{ color: "#B02A37", fontSize: "0.78rem" }}>
+          Needs correction
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 function createEmptyDraftAnswer(): DraftAnswer {
   return {
     value: "",
+    notApplicable: false,
+    notApplicableText: "",
     fileName: "",
     fileMimeType: "",
     fileSize: null,
@@ -56,8 +149,13 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function buildRejectedFieldKey(serviceId: string, question: string) {
-  return `${serviceId}::${question.trim()}`;
+function buildRejectedFieldKey(serviceId: string, fieldKey: string, question: string) {
+  const normalizedFieldKey = fieldKey.trim();
+  if (normalizedFieldKey) {
+    return `${serviceId}::${normalizedFieldKey}`;
+  }
+
+  return `${serviceId}::question::${question.trim()}`;
 }
 
 function supportsLengthConstraints(field: ServiceFormField) {
@@ -101,8 +199,8 @@ function getConstraintHint(field: ServiceFormField) {
   return hints.join(" | ");
 }
 
-function supportsRepeatable(field: ServiceFormField) {
-  return field.fieldType !== "file" && Boolean(field.repeatable);
+function supportsRepeatable(field: ServiceFormField, allowMultipleEntries = false) {
+  return field.fieldType !== "file" && (Boolean(field.repeatable) || allowMultipleEntries);
 }
 
 function parseRepeatableAnswerValues(rawValue: string) {
@@ -133,9 +231,7 @@ function OrdersPageContent() {
   const searchParams = useSearchParams();
   const { items, loading: requestsLoading, refreshRequests } = useRequestsData();
   const [requestsReady, setRequestsReady] = useState(false);
-  const [formDrafts, setFormDrafts] = useState<
-    Record<string, Record<string, Record<string, DraftAnswer>>>
-  >({});
+  const [formDrafts, setFormDrafts] = useState<Record<string, Record<string, Record<string, DraftAnswer>>>>({});
   const [submittingRequestId, setSubmittingRequestId] = useState("");
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -204,7 +300,8 @@ function OrdersPageContent() {
   }, [focusRequestId, pendingItems]);
 
   function getDraftAnswer(item: RequestItem, serviceId: string, field: ServiceFormField) {
-    const draftValue = formDrafts[item._id]?.[serviceId]?.[field.question];
+    const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+    const draftValue = formDrafts[item._id]?.[serviceId]?.[fieldStorageKey];
     if (draftValue) {
       return draftValue;
     }
@@ -212,10 +309,18 @@ function OrdersPageContent() {
     const existingResponse = item.candidateFormResponses.find(
       (response) => response.serviceId === serviceId,
     );
-    const existingAnswer = existingResponse?.answers.find((answer) => answer.question === field.question);
+    const existingAnswer = existingResponse?.answers.find((answer) => {
+      if (field.fieldKey?.trim()) {
+        return answer.fieldKey?.trim() === field.fieldKey.trim();
+      }
+
+      return answer.question === field.question;
+    });
 
     return {
       value: existingAnswer?.value ?? "",
+      notApplicable: Boolean(existingAnswer?.notApplicable),
+      notApplicableText: existingAnswer?.notApplicableText ?? "",
       fileName: existingAnswer?.fileName ?? "",
       fileMimeType: existingAnswer?.fileMimeType ?? "",
       fileSize: existingAnswer?.fileSize ?? null,
@@ -226,7 +331,7 @@ function OrdersPageContent() {
   function onAnswerChange(
     requestId: string,
     serviceId: string,
-    question: string,
+    fieldKey: string,
     next: DraftAnswer,
   ) {
     setFormDrafts((prev) => ({
@@ -235,20 +340,94 @@ function OrdersPageContent() {
         ...(prev[requestId] ?? {}),
         [serviceId]: {
           ...(prev[requestId]?.[serviceId] ?? {}),
-          [question]: next,
+          [fieldKey]: next,
         },
       },
     }));
   }
 
+  function getServiceLevelEntryCount(item: RequestItem, serviceForm: RequestServiceForm) {
+    if (!serviceForm.allowMultipleEntries) {
+      return 1;
+    }
+
+    let maxEntries = 1;
+
+    for (const field of serviceForm.fields) {
+      if (field.fieldType === "file") {
+        continue;
+      }
+
+      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+      const entryCount = parseRepeatableAnswerValues(answer.value).length;
+      if (entryCount > maxEntries) {
+        maxEntries = entryCount;
+      }
+    }
+
+    return maxEntries;
+  }
+
+  function addServiceLevelEntry(item: RequestItem, serviceForm: RequestServiceForm) {
+    if (!serviceForm.allowMultipleEntries) {
+      return;
+    }
+
+    for (const field of serviceForm.fields) {
+      if (field.fieldType === "file") {
+        continue;
+      }
+
+      const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+      const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
+
+      onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+        ...answer,
+        notApplicable: false,
+        value: serializeRepeatableAnswerValues(nextValues),
+      });
+    }
+  }
+
+  function removeServiceLevelEntry(item: RequestItem, serviceForm: RequestServiceForm) {
+    if (!serviceForm.allowMultipleEntries) {
+      return;
+    }
+
+    const currentCount = getServiceLevelEntryCount(item, serviceForm);
+    if (currentCount <= 1) {
+      return;
+    }
+
+    for (const field of serviceForm.fields) {
+      if (field.fieldType === "file") {
+        continue;
+      }
+
+      const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+      const nextValues = parseRepeatableAnswerValues(answer.value);
+      if (nextValues.length > 1) {
+        nextValues.pop();
+      }
+
+      onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+        ...answer,
+        notApplicable: false,
+        value: serializeRepeatableAnswerValues(nextValues),
+      });
+    }
+  }
+
   async function onFileChange(
     requestId: string,
     serviceId: string,
-    question: string,
+    fieldKey: string,
     file: File | null,
   ) {
     if (!file) {
-      onAnswerChange(requestId, serviceId, question, createEmptyDraftAnswer());
+      onAnswerChange(requestId, serviceId, fieldKey, createEmptyDraftAnswer());
       return;
     }
 
@@ -265,8 +444,10 @@ function OrdersPageContent() {
 
     try {
       const fileData = await readFileAsDataUrl(file);
-      onAnswerChange(requestId, serviceId, question, {
+      onAnswerChange(requestId, serviceId, fieldKey, {
         value: file.name,
+        notApplicable: false,
+        notApplicableText: "",
         fileName: file.name,
         fileMimeType: mimeType,
         fileSize: file.size,
@@ -284,8 +465,19 @@ function OrdersPageContent() {
     const responses = item.serviceForms.map((serviceForm) => ({
       serviceId: serviceForm.serviceId,
       answers: serviceForm.fields.map((field) => {
+        const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);
+        const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
         const answer = getDraftAnswer(item, serviceForm.serviceId, field);
-        const normalizedValue = supportsRepeatable(field)
+        const isNotApplicable =
+          !serviceAllowsMultipleEntries &&
+          Boolean(field.allowNotApplicable) &&
+          Boolean(answer.notApplicable);
+        const resolvedNotApplicableText =
+          field.notApplicableText?.trim() ||
+          answer.notApplicableText?.trim() ||
+          "Not Applicable";
+        const usesRepeatableMode = supportsRepeatable(field, serviceAllowsMultipleEntries);
+        const normalizedValue = usesRepeatableMode
           ? serializeRepeatableAnswerValues(
               parseRepeatableAnswerValues(answer.value)
                 .map((entry) => normalizeAnswerValue(field, entry).trim())
@@ -294,13 +486,16 @@ function OrdersPageContent() {
           : normalizeAnswerValue(field, answer.value);
 
         return {
+          fieldKey: fieldStorageKey,
           question: field.question,
-          repeatable: supportsRepeatable(field),
-          value: normalizedValue,
+          repeatable: usesRepeatableMode,
+          notApplicable: isNotApplicable,
+          notApplicableText: isNotApplicable ? resolvedNotApplicableText : "",
+          value: isNotApplicable ? resolvedNotApplicableText : normalizedValue,
           fileName: answer.fileName,
           fileMimeType: answer.fileMimeType,
           fileSize: answer.fileSize,
-          fileData: answer.fileData,
+          fileData: isNotApplicable ? "" : answer.fileData,
         };
       }),
     }));
@@ -358,7 +553,7 @@ function OrdersPageContent() {
             const isExpanded = resolvedExpandedRequestId === item._id;
             const rejectedFieldSet = new Set(
               (item.customerRejectedFields ?? []).map((field) =>
-                buildRejectedFieldKey(field.serviceId, field.question),
+                buildRejectedFieldKey(field.serviceId, field.fieldKey ?? "", field.question),
               ),
             );
             const hasRejectedFields = rejectedFieldSet.size > 0;
@@ -432,14 +627,67 @@ function OrdersPageContent() {
                         >
                           <strong>{serviceForm.serviceName}</strong>
 
+                          {serviceForm.allowMultipleEntries ? (
+                            <div
+                              style={{
+                                border: "1px solid #DDE5EF",
+                                borderRadius: "10px",
+                                padding: "0.6rem 0.7rem",
+                                background: "#F4F9FF",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "0.7rem",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span style={{ color: "#466189", fontSize: "0.84rem", fontWeight: 600 }}>
+                                {serviceForm?.multipleEntriesLabel || "Whole-service entries"}: {getServiceLevelEntryCount(item, serviceForm)}
+                              </span>
+                              <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                                <button
+                                  className="btn btn-secondary"
+                                  type="button"
+                                  style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                  onClick={() => addServiceLevelEntry(item, serviceForm)}
+                                >
+                                  + Add another entry
+                                </button>
+                                <button
+                                  className="btn btn-secondary"
+                                  type="button"
+                                  style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                  disabled={getServiceLevelEntryCount(item, serviceForm) <= 1}
+                                  onClick={() => removeServiceLevelEntry(item, serviceForm)}
+                                >
+                                  Remove last entry
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+
                           {serviceForm.fields.length === 0 ? (
                             <p className="block-subtitle">No custom form fields for this service.</p>
                           ) : (
                             serviceForm.fields.map((field) => {
+                              const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);
+                              const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
                               const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                               const labelText = `${field.question}${field.required ? " *" : ""}`;
+                              const isNotApplicable =
+                                !serviceAllowsMultipleEntries &&
+                                Boolean(field.allowNotApplicable) &&
+                                Boolean(answer.notApplicable);
+                              const resolvedNotApplicableText =
+                                field.notApplicableText?.trim() ||
+                                answer.notApplicableText?.trim() ||
+                                "Not Applicable";
                               const isRejectedField = rejectedFieldSet.has(
-                                buildRejectedFieldKey(serviceForm.serviceId, field.question),
+                                buildRejectedFieldKey(
+                                  serviceForm.serviceId,
+                                  field.fieldKey ?? "",
+                                  field.question,
+                                ),
                               );
                               const correctionStyle = isRejectedField
                                 ? {
@@ -450,25 +698,57 @@ function OrdersPageContent() {
                                   }
                                 : undefined;
                               const constraintHint = getConstraintHint(field);
+                              const notApplicableToggle =
+                                field.allowNotApplicable && !serviceAllowsMultipleEntries ? (
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.4rem",
+                                    color: "#4A5E79",
+                                    fontSize: "0.82rem",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isNotApplicable}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                        ...answer,
+                                        notApplicable: checked,
+                                        notApplicableText: resolvedNotApplicableText,
+                                        value: checked ? resolvedNotApplicableText : "",
+                                        fileName: "",
+                                        fileMimeType: "",
+                                        fileSize: null,
+                                        fileData: "",
+                                      });
+                                    }}
+                                  />
+                                  {resolvedNotApplicableText}
+                                </label>
+                                ) : null;
 
                               if (field.fieldType === "long_text") {
-                                if (supportsRepeatable(field)) {
+                                if (supportsRepeatable(field, serviceAllowsMultipleEntries)) {
                                   const repeatableValues = parseRepeatableAnswerValues(answer.value);
 
                                   return (
-                                    <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                    <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
                                       <label className="label">
-                                        {labelText}
-                                        {isRejectedField ? (
-                                          <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
-                                            Needs correction
-                                          </span>
-                                        ) : null}
+                                        <QuestionPrompt
+                                          iconKey={field.iconKey}
+                                          labelText={labelText}
+                                          isRejectedField={isRejectedField}
+                                        />
                                       </label>
+                                      {notApplicableToggle}
                                       <div style={{ display: "grid", gap: "0.55rem" }}>
                                         {repeatableValues.map((entryValue, entryIndex) => (
                                           <div
-                                            key={`${item._id}-${serviceForm.serviceId}-${field.question}-${entryIndex}`}
+                                            key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${entryIndex}`}
                                             style={{
                                               border: "1px solid #DEE2E6",
                                               borderRadius: "10px",
@@ -485,7 +765,7 @@ function OrdersPageContent() {
                                               onChange={(e) => {
                                                 const nextValues = parseRepeatableAnswerValues(answer.value);
                                                 nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
-                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                                   ...answer,
                                                   value: serializeRepeatableAnswerValues(nextValues),
                                                 });
@@ -493,19 +773,24 @@ function OrdersPageContent() {
                                               minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                               maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                               style={{ minHeight: "120px", resize: "vertical" }}
-                                              required={field.required}
+                                              required={field.required && !isNotApplicable}
+                                              disabled={isNotApplicable}
                                             />
                                             <div style={{ display: "flex", justifyContent: "flex-end" }}>
                                               <button
                                                 className="btn btn-secondary"
                                                 type="button"
                                                 style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
-                                                disabled={repeatableValues.length === 1}
+                                                disabled={
+                                                  serviceAllowsMultipleEntries ||
+                                                  repeatableValues.length === 1 ||
+                                                  isNotApplicable
+                                                }
                                                 onClick={() => {
                                                   const nextValues = parseRepeatableAnswerValues(answer.value).filter(
                                                     (_value, idx) => idx !== entryIndex,
                                                   );
-                                                  onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                  onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                                     ...answer,
                                                     value: serializeRepeatableAnswerValues(nextValues),
                                                   });
@@ -517,20 +802,29 @@ function OrdersPageContent() {
                                           </div>
                                         ))}
 
-                                        <button
-                                          className="btn btn-secondary"
-                                          type="button"
-                                          style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
-                                          onClick={() => {
-                                            const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
-                                            onAnswerChange(item._id, serviceForm.serviceId, field.question, {
-                                              ...answer,
-                                              value: serializeRepeatableAnswerValues(nextValues),
-                                            });
-                                          }}
-                                        >
-                                          + Add another entry
-                                        </button>
+                                        {!serviceAllowsMultipleEntries ? (
+                                          <button
+                                            className="btn btn-secondary"
+                                            type="button"
+                                            style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
+                                            disabled={isNotApplicable}
+                                            onClick={() => {
+                                              const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
+                                              onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                                ...answer,
+                                                value: serializeRepeatableAnswerValues(nextValues),
+                                              });
+                                            }}
+                                          >
+                                            + Add another entry
+                                          </button>
+                                        ) : null}
+
+                                        {isNotApplicable ? (
+                                          <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                            Saved as: {resolvedNotApplicableText}
+                                          </p>
+                                        ) : null}
                                       </div>
                                       {constraintHint ? (
                                         <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
@@ -542,21 +836,21 @@ function OrdersPageContent() {
                                 }
 
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
                                     <label className="label">
-                                      {labelText}
-                                      {isRejectedField ? (
-                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
-                                          Needs correction
-                                        </span>
-                                      ) : null}
+                                      <QuestionPrompt
+                                        iconKey={field.iconKey}
+                                        labelText={labelText}
+                                        isRejectedField={isRejectedField}
+                                      />
                                     </label>
+                                    {notApplicableToggle}
                                     <textarea
                                       className="input"
                                       rows={5}
                                       value={answer.value}
                                       onChange={(e) =>
-                                        onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                        onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                           ...answer,
                                           value: normalizeAnswerValue(field, e.target.value),
                                         })
@@ -564,8 +858,14 @@ function OrdersPageContent() {
                                       minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                       maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                       style={{ minHeight: "120px", resize: "vertical" }}
-                                      required={field.required}
+                                      required={field.required && !isNotApplicable}
+                                      disabled={isNotApplicable}
                                     />
+                                    {isNotApplicable ? (
+                                      <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                        Saved as: {resolvedNotApplicableText}
+                                      </p>
+                                    ) : null}
                                     {constraintHint ? (
                                       <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
                                         {constraintHint}
@@ -577,15 +877,15 @@ function OrdersPageContent() {
 
                               if (field.fieldType === "file") {
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${field.question}`} style={correctionStyle}>
+                                  <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
                                     <label className="label">
-                                      {labelText}
-                                      {isRejectedField ? (
-                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
-                                          Needs correction
-                                        </span>
-                                      ) : null}
+                                      <QuestionPrompt
+                                        iconKey={field.iconKey}
+                                        labelText={labelText}
+                                        isRejectedField={isRejectedField}
+                                      />
                                     </label>
+                                    {notApplicableToggle}
                                     <input
                                       className="input"
                                       type="file"
@@ -594,15 +894,21 @@ function OrdersPageContent() {
                                         onFileChange(
                                           item._id,
                                           serviceForm.serviceId,
-                                          field.question,
+                                          fieldStorageKey,
                                           e.target.files?.[0] ?? null,
                                         )
                                       }
-                                      required={field.required && !answer.fileData}
+                                      required={field.required && !answer.fileData && !isNotApplicable}
+                                      disabled={isNotApplicable}
                                     />
                                     <p style={{ margin: "0.35rem 0 0", color: "#6C757D", fontSize: "0.86rem" }}>
                                       PDF, JPG, PNG only. Maximum size 5MB.
                                     </p>
+                                    {isNotApplicable ? (
+                                      <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                        Saved as: {resolvedNotApplicableText}
+                                      </p>
+                                    ) : null}
                                     {answer.fileData ? (
                                       <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
                                         <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#4A90E2", fontWeight: 700 }}>
@@ -622,12 +928,12 @@ function OrdersPageContent() {
                                     ? "date"
                                     : "text";
 
-                              if (supportsRepeatable(field)) {
+                              if (supportsRepeatable(field, serviceAllowsMultipleEntries)) {
                                 const repeatableValues = parseRepeatableAnswerValues(answer.value);
 
                                 return (
                                   <div
-                                    key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
+                                    key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                     style={
                                       isRejectedField
                                         ? {
@@ -649,17 +955,17 @@ function OrdersPageContent() {
                                     }
                                   >
                                     <label className="label" style={{ marginBottom: 0 }}>
-                                      {labelText}
-                                      {isRejectedField ? (
-                                        <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
-                                          Needs correction
-                                        </span>
-                                      ) : null}
+                                      <QuestionPrompt
+                                        iconKey={field.iconKey}
+                                        labelText={labelText}
+                                        isRejectedField={isRejectedField}
+                                      />
                                     </label>
                                     <div style={{ display: "grid", gap: "0.45rem" }}>
+                                      {notApplicableToggle}
                                       {repeatableValues.map((entryValue, entryIndex) => (
                                         <div
-                                          key={`${item._id}-${serviceForm.serviceId}-${field.question}-${entryIndex}`}
+                                          key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${entryIndex}`}
                                           style={{
                                             border: "1px solid #DEE2E6",
                                             borderRadius: "10px",
@@ -684,25 +990,30 @@ function OrdersPageContent() {
                                               onChange={(e) => {
                                                 const nextValues = parseRepeatableAnswerValues(answer.value);
                                                 nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
-                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                                   ...answer,
                                                   value: serializeRepeatableAnswerValues(nextValues),
                                                 });
                                               }}
                                               minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                               maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
-                                              required={field.required}
+                                              required={field.required && !isNotApplicable}
+                                              disabled={isNotApplicable}
                                             />
                                             <button
                                               className="btn btn-secondary"
                                               type="button"
                                               style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
-                                              disabled={repeatableValues.length === 1}
+                                              disabled={
+                                                serviceAllowsMultipleEntries ||
+                                                repeatableValues.length === 1 ||
+                                                isNotApplicable
+                                              }
                                               onClick={() => {
                                                 const nextValues = parseRepeatableAnswerValues(answer.value).filter(
                                                   (_value, idx) => idx !== entryIndex,
                                                 );
-                                                onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                                onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                                   ...answer,
                                                   value: serializeRepeatableAnswerValues(nextValues),
                                                 });
@@ -719,20 +1030,29 @@ function OrdersPageContent() {
                                         </div>
                                       ))}
 
-                                      <button
-                                        className="btn btn-secondary"
-                                        type="button"
-                                        style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
-                                        onClick={() => {
-                                          const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
-                                          onAnswerChange(item._id, serviceForm.serviceId, field.question, {
-                                            ...answer,
-                                            value: serializeRepeatableAnswerValues(nextValues),
-                                          });
-                                        }}
-                                      >
-                                        + Add another entry
-                                      </button>
+                                      {!serviceAllowsMultipleEntries ? (
+                                        <button
+                                          className="btn btn-secondary"
+                                          type="button"
+                                          style={{ justifySelf: "start", padding: "0.4rem 0.7rem", fontSize: "0.82rem" }}
+                                          disabled={isNotApplicable}
+                                          onClick={() => {
+                                            const nextValues = [...parseRepeatableAnswerValues(answer.value), ""];
+                                            onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                              ...answer,
+                                              value: serializeRepeatableAnswerValues(nextValues),
+                                            });
+                                          }}
+                                        >
+                                          + Add another entry
+                                        </button>
+                                      ) : null}
+
+                                      {isNotApplicable ? (
+                                        <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                          Saved as: {resolvedNotApplicableText}
+                                        </p>
+                                      ) : null}
 
                                       {constraintHint ? (
                                         <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
@@ -746,7 +1066,7 @@ function OrdersPageContent() {
 
                               return (
                                 <div
-                                  key={`${item._id}-${serviceForm.serviceId}-${field.question}`}
+                                  key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                   style={
                                     isRejectedField
                                       ? {
@@ -768,28 +1088,34 @@ function OrdersPageContent() {
                                   }
                                 >
                                   <label className="label" style={{ marginBottom: 0 }}>
-                                    {labelText}
-                                    {isRejectedField ? (
-                                      <span style={{ marginLeft: "0.45rem", color: "#B02A37", fontSize: "0.78rem" }}>
-                                        Needs correction
-                                      </span>
-                                    ) : null}
+                                    <QuestionPrompt
+                                      iconKey={field.iconKey}
+                                      labelText={labelText}
+                                      isRejectedField={isRejectedField}
+                                    />
                                   </label>
                                   <div style={{ display: "grid", gap: "0.3rem" }}>
+                                    {notApplicableToggle}
                                     <input
                                       className="input"
                                       type={inputType}
                                       value={answer.value}
                                       onChange={(e) =>
-                                        onAnswerChange(item._id, serviceForm.serviceId, field.question, {
+                                        onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
                                           ...answer,
                                           value: normalizeAnswerValue(field, e.target.value),
                                         })
                                       }
                                       minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                       maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
-                                      required={field.required}
+                                      required={field.required && !isNotApplicable}
+                                      disabled={isNotApplicable}
                                     />
+                                    {isNotApplicable ? (
+                                      <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                        Saved as: {resolvedNotApplicableText}
+                                      </p>
+                                    ) : null}
                                     {field.fieldType === "date" ? (
                                       <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
                                         Pick a date from the calendar.

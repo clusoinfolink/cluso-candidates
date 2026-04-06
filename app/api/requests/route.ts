@@ -12,6 +12,24 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/png",
 ]);
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_QUESTION_ICON_KEY = "diary";
+const SUPPORTED_QUESTION_ICON_KEYS = new Set([
+  "none",
+  "diary",
+  "house",
+  "pen",
+  "calendar",
+  "phone",
+  "location",
+  "id-card",
+  "document",
+  "work",
+  "person",
+  "email",
+  "company",
+  "global",
+  "security",
+]);
 
 const submitSchema = z.object({
   requestId: z.string().min(1),
@@ -20,9 +38,12 @@ const submitSchema = z.object({
       serviceId: z.string().min(1),
       answers: z.array(
         z.object({
+          fieldKey: z.string().optional().default(""),
           question: z.string().min(1),
           value: z.string().optional().default(""),
           repeatable: z.boolean().optional().default(false),
+          notApplicable: z.boolean().optional().default(false),
+          notApplicableText: z.string().optional().default(""),
           fileName: z.string().optional().default(""),
           fileMimeType: z.string().optional().default(""),
           fileSize: z.number().nullable().optional().default(null),
@@ -84,6 +105,33 @@ function normalizeServiceId(serviceId: unknown) {
   return String(serviceId);
 }
 
+function resolveFieldKey(rawFieldKey: unknown, question: string, index: number) {
+  const normalizedFieldKey = String(rawFieldKey ?? "").trim();
+  if (normalizedFieldKey) {
+    return normalizedFieldKey;
+  }
+
+  const normalizedQuestion = question
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+
+  return `legacy_${normalizedQuestion || "field"}_${index + 1}`;
+}
+
+function normalizeQuestionIconKey(rawIconKey: unknown) {
+  if (typeof rawIconKey !== "string") {
+    return DEFAULT_QUESTION_ICON_KEY;
+  }
+
+  const normalized = rawIconKey.trim().toLowerCase();
+  return SUPPORTED_QUESTION_ICON_KEYS.has(normalized)
+    ? normalized
+    : DEFAULT_QUESTION_ICON_KEY;
+}
+
 function candidateOwnershipFilter(candidateEmail: string, candidateUserId: string) {
   return {
     candidateEmail,
@@ -136,7 +184,7 @@ export async function GET(req: NextRequest) {
   const services =
     selectedServiceIds.length > 0
       ? await Service.find({ _id: { $in: selectedServiceIds } })
-          .select("name formFields")
+          .select("name allowMultipleEntries multipleEntriesLabel formFields")
           .lean()
       : [];
 
@@ -145,14 +193,20 @@ export async function GET(req: NextRequest) {
       String(service._id),
       {
         name: service.name,
-        formFields: (service.formFields ?? []).map((field) => ({
+        allowMultipleEntries: Boolean(service.allowMultipleEntries),
+          multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
+        formFields: (service.formFields ?? []).map((field, index) => ({
+          fieldKey: resolveFieldKey(field.fieldKey, field.question, index),
           question: field.question,
+          iconKey: normalizeQuestionIconKey(field.iconKey),
           fieldType: field.fieldType,
           required: Boolean(field.required),
           repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
           minLength: typeof field.minLength === "number" ? field.minLength : null,
           maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
           forceUppercase: Boolean(field.forceUppercase),
+          allowNotApplicable: Boolean(field.allowNotApplicable),
+          notApplicableText: field.notApplicableText?.trim() || "Not Applicable",
         })),
       },
     ]),
@@ -184,16 +238,23 @@ export async function GET(req: NextRequest) {
       serviceForms: selectedServices.map((selectedService) => ({
         serviceId: selectedService.serviceId,
         serviceName: selectedService.serviceName,
-        fields: serviceMap.get(selectedService.serviceId)?.formFields ?? [],
+        allowMultipleEntries: Boolean(
+          serviceMap.get(selectedService.serviceId)?.allowMultipleEntries,
+        ),
+        multipleEntriesLabel: serviceMap.get(selectedService.serviceId)?.multipleEntriesLabel,
+          fields: serviceMap.get(selectedService.serviceId)?.formFields ?? [],
       })),
       candidateFormResponses: (item.candidateFormResponses ?? []).map((serviceResponse) => ({
         serviceId: normalizeServiceId(serviceResponse.serviceId),
         serviceName: serviceResponse.serviceName,
-        answers: (serviceResponse.answers ?? []).map((answer) => ({
+        answers: (serviceResponse.answers ?? []).map((answer, answerIndex) => ({
+          fieldKey: resolveFieldKey(answer.fieldKey, answer.question, answerIndex),
           question: answer.question,
           fieldType: answer.fieldType,
           required: Boolean(answer.required),
           repeatable: Boolean(answer.repeatable),
+          notApplicable: Boolean(answer.notApplicable),
+          notApplicableText: answer.notApplicableText ?? "",
           value: answer.value,
           fileName: answer.fileName ?? "",
           fileMimeType: answer.fileMimeType ?? "",
@@ -201,9 +262,10 @@ export async function GET(req: NextRequest) {
           fileData: answer.fileData ?? "",
         })),
       })),
-      customerRejectedFields: (item.customerRejectedFields ?? []).map((field) => ({
+      customerRejectedFields: (item.customerRejectedFields ?? []).map((field, fieldIndex) => ({
         serviceId: normalizeServiceId(field.serviceId),
         serviceName: field.serviceName,
+        fieldKey: resolveFieldKey(field.fieldKey, field.question, fieldIndex),
         question: field.question,
         fieldType: field.fieldType,
       })),
@@ -261,7 +323,7 @@ export async function PATCH(req: NextRequest) {
 
   const selectedServiceIds = selectedServices.map((service) => service.serviceId);
   const services = await Service.find({ _id: { $in: selectedServiceIds } })
-    .select("name formFields")
+    .select("name allowMultipleEntries multipleEntriesLabel formFields")
     .lean();
 
   const serviceMap = new Map(
@@ -269,14 +331,20 @@ export async function PATCH(req: NextRequest) {
       String(service._id),
       {
         name: service.name,
-        formFields: (service.formFields ?? []).map((field) => ({
+        allowMultipleEntries: Boolean(service.allowMultipleEntries),
+          multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
+        formFields: (service.formFields ?? []).map((field, index) => ({
+          fieldKey: resolveFieldKey(field.fieldKey, field.question, index),
           question: field.question,
+          iconKey: normalizeQuestionIconKey(field.iconKey),
           fieldType: field.fieldType,
           required: Boolean(field.required),
           repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
           minLength: typeof field.minLength === "number" ? field.minLength : null,
           maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
           forceUppercase: Boolean(field.forceUppercase),
+          allowNotApplicable: Boolean(field.allowNotApplicable),
+          notApplicableText: field.notApplicableText?.trim() || "Not Applicable",
         })),
       },
     ]),
@@ -285,19 +353,44 @@ export async function PATCH(req: NextRequest) {
   const responseMap = new Map(
     parsed.data.responses.map((serviceResponse) => [
       serviceResponse.serviceId,
-      new Map(
-        serviceResponse.answers.map((answer) => [
-          answer.question.trim(),
+      (() => {
+        const serviceAnswerMap = new Map<
+          string,
           {
+            value: string;
+            repeatable: boolean;
+            notApplicable: boolean;
+            notApplicableText: string;
+            fileName: string;
+            fileMimeType: string;
+            fileSize: number | null;
+            fileData: string;
+          }
+        >();
+
+        for (const answer of serviceResponse.answers) {
+          const normalizedQuestion = answer.question.trim();
+          const normalizedFieldKey = answer.fieldKey?.trim() ?? "";
+          const payload = {
             value: answer.value?.trim() ?? "",
             repeatable: Boolean(answer.repeatable),
+            notApplicable: Boolean(answer.notApplicable),
+            notApplicableText: answer.notApplicableText?.trim() ?? "",
             fileName: answer.fileName?.trim() ?? "",
             fileMimeType: answer.fileMimeType?.trim().toLowerCase() ?? "",
             fileSize: answer.fileSize ?? null,
             fileData: answer.fileData?.trim() ?? "",
-          },
-        ]),
-      ),
+          };
+
+          if (normalizedFieldKey) {
+            serviceAnswerMap.set(`key:${normalizedFieldKey}`, payload);
+          }
+
+          serviceAnswerMap.set(`question:${normalizedQuestion}`, payload);
+        }
+
+        return serviceAnswerMap;
+      })(),
     ]),
   );
 
@@ -305,12 +398,18 @@ export async function PATCH(req: NextRequest) {
 
   const candidateFormResponses = selectedServices.map((selectedService) => {
     const serviceDefinition = serviceMap.get(selectedService.serviceId);
+    const serviceAllowsMultipleEntries = Boolean(serviceDefinition?.allowMultipleEntries);
     const formFields = serviceDefinition?.formFields ?? [];
     const submittedAnswers = responseMap.get(selectedService.serviceId) ?? new Map();
 
     const answers = formFields.map((field) => {
-      const incomingAnswer = submittedAnswers.get(field.question) ?? {
+      const incomingAnswer =
+        (field.fieldKey ? submittedAnswers.get(`key:${field.fieldKey}`) : undefined) ??
+        submittedAnswers.get(`question:${field.question.trim()}`) ?? {
         value: "",
+        repeatable: false,
+        notApplicable: false,
+        notApplicableText: "",
         fileName: "",
         fileMimeType: "",
         fileSize: null,
@@ -322,12 +421,37 @@ export async function PATCH(req: NextRequest) {
       const fileSize = incomingAnswer.fileSize;
       const fileData = incomingAnswer.fileData ?? "";
       const isRequired = Boolean(field.required);
-      const isRepeatable = field.fieldType !== "file" && Boolean(field.repeatable);
+      const isRepeatable =
+        field.fieldType !== "file" &&
+        (Boolean(field.repeatable) || serviceAllowsMultipleEntries);
+      const allowNotApplicable = Boolean(field.allowNotApplicable);
+      const notApplicableText = field.notApplicableText?.trim() || "Not Applicable";
+      const isNotApplicable =
+        !serviceAllowsMultipleEntries &&
+        allowNotApplicable &&
+        Boolean(incomingAnswer.notApplicable);
       const hasLengthConstraints = supportsLengthConstraints(field.fieldType);
 
       let normalizedValue = applyAnswerFormatting(value, field);
 
       const trimmedValue = normalizedValue.trim();
+
+      if (isNotApplicable) {
+        return {
+          fieldKey: field.fieldKey,
+          question: field.question,
+          fieldType: field.fieldType,
+          required: isRequired,
+          repeatable: false,
+          notApplicable: true,
+          notApplicableText,
+          value: notApplicableText,
+          fileName: "",
+          fileMimeType: "",
+          fileSize: null,
+          fileData: "",
+        };
+      }
 
       if (field.fieldType === "file") {
         if (isRequired && !fileData && !validationError) {
@@ -351,10 +475,13 @@ export async function PATCH(req: NextRequest) {
         }
 
         return {
+          fieldKey: field.fieldKey,
           question: field.question,
           fieldType: field.fieldType,
           required: isRequired,
           repeatable: false,
+          notApplicable: false,
+          notApplicableText: "",
           value: fileName || value,
           fileName,
           fileMimeType,
@@ -413,10 +540,13 @@ export async function PATCH(req: NextRequest) {
         }
 
         return {
+          fieldKey: field.fieldKey,
           question: field.question,
           fieldType: field.fieldType,
           required: isRequired,
           repeatable: true,
+          notApplicable: false,
+          notApplicableText: "",
           value: JSON.stringify(normalizedValues),
           fileName: "",
           fileMimeType: "",
@@ -463,10 +593,13 @@ export async function PATCH(req: NextRequest) {
       }
 
       return {
+        fieldKey: field.fieldKey,
         question: field.question,
         fieldType: field.fieldType,
         required: isRequired,
         repeatable: false,
+        notApplicable: false,
+        notApplicableText: "",
         value: normalizedValue,
         fileName: "",
         fileMimeType: "",

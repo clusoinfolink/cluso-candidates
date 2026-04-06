@@ -8,20 +8,27 @@ export type ServiceOption = {
 };
 
 export type ServiceFormField = {
+  fieldKey?: string;
   question: string;
+  iconKey?: string;
   fieldType: "text" | "long_text" | "number" | "file" | "date";
   required: boolean;
   repeatable?: boolean;
   minLength?: number | null;
   maxLength?: number | null;
   forceUppercase?: boolean;
+  allowNotApplicable?: boolean;
+  notApplicableText?: string;
 };
 
 export type CandidateAnswer = {
+  fieldKey?: string;
   question: string;
   fieldType: "text" | "long_text" | "number" | "file" | "date";
   required?: boolean;
   repeatable?: boolean;
+  notApplicable?: boolean;
+  notApplicableText?: string;
   value: string;
   fileName?: string;
   fileMimeType?: string;
@@ -38,6 +45,7 @@ export type CandidateServiceResponse = {
 export type RejectedCandidateField = {
   serviceId: string;
   serviceName: string;
+  fieldKey?: string;
   question: string;
   fieldType: "text" | "long_text" | "number" | "file" | "date";
 };
@@ -119,6 +127,8 @@ export type RequestItem = {
   serviceForms: Array<{
     serviceId: string;
     serviceName: string;
+    allowMultipleEntries?: boolean;
+  multipleEntriesLabel?: string;
     fields: ServiceFormField[];
   }>;
   candidateFormResponses: CandidateServiceResponse[];
