@@ -19,7 +19,6 @@ import {
   Building2,
   Globe,
   ShieldCheck,
-  type LucideIcon,
 } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
@@ -46,33 +45,66 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/png",
 ]);
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
-const DEFAULT_QUESTION_ICON_KEY = "diary";
-
-const QUESTION_ICON_COMPONENTS: Record<string, LucideIcon> = {
-  diary: NotebookPen,
-  house: House,
-  pen: PenLine,
-  calendar: Calendar,
-  phone: Phone,
-  location: MapPin,
-  "id-card": IdCard,
-  document: FileText,
-  work: Briefcase,
-  person: User,
-  email: Mail,
-  company: Building2,
-  global: Globe,
-  security: ShieldCheck,
-};
-
-function resolveQuestionIcon(iconKey?: string) {
+function renderQuestionIcon(iconKey?: string) {
   const normalized = iconKey?.trim().toLowerCase() ?? "";
 
   if (normalized === "none") {
     return null;
   }
 
-  return QUESTION_ICON_COMPONENTS[normalized] ?? QUESTION_ICON_COMPONENTS[DEFAULT_QUESTION_ICON_KEY];
+  if (normalized === "house") {
+    return <House size={13} />;
+  }
+
+  if (normalized === "pen") {
+    return <PenLine size={13} />;
+  }
+
+  if (normalized === "calendar") {
+    return <Calendar size={13} />;
+  }
+
+  if (normalized === "phone") {
+    return <Phone size={13} />;
+  }
+
+  if (normalized === "location") {
+    return <MapPin size={13} />;
+  }
+
+  if (normalized === "id-card") {
+    return <IdCard size={13} />;
+  }
+
+  if (normalized === "document") {
+    return <FileText size={13} />;
+  }
+
+  if (normalized === "work") {
+    return <Briefcase size={13} />;
+  }
+
+  if (normalized === "person") {
+    return <User size={13} />;
+  }
+
+  if (normalized === "email") {
+    return <Mail size={13} />;
+  }
+
+  if (normalized === "company") {
+    return <Building2 size={13} />;
+  }
+
+  if (normalized === "global") {
+    return <Globe size={13} />;
+  }
+
+  if (normalized === "security") {
+    return <ShieldCheck size={13} />;
+  }
+
+  return <NotebookPen size={13} />;
 }
 
 function QuestionPrompt({
@@ -84,11 +116,11 @@ function QuestionPrompt({
   labelText: string;
   isRejectedField: boolean;
 }) {
-  const Icon = resolveQuestionIcon(iconKey);
+  const iconElement = renderQuestionIcon(iconKey);
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
-      {Icon ? (
+      {iconElement ? (
         <span
           style={{
             width: "1.3rem",
@@ -103,7 +135,7 @@ function QuestionPrompt({
             flexShrink: 0,
           }}
         >
-          <Icon size={13} />
+          {iconElement}
         </span>
       ) : null}
       <span>{labelText}</span>
@@ -159,18 +191,22 @@ function buildRejectedFieldKey(serviceId: string, fieldKey: string, question: st
 }
 
 function supportsLengthConstraints(field: ServiceFormField) {
+  return field.fieldType === "text" || field.fieldType === "long_text" || field.fieldType === "number";
+}
+
+function supportsUppercaseConstraint(field: ServiceFormField) {
   return field.fieldType === "text" || field.fieldType === "long_text";
 }
 
 function normalizeAnswerValue(field: ServiceFormField, rawValue: string) {
   let nextValue = rawValue;
 
-  if (field.forceUppercase) {
+  if (supportsUppercaseConstraint(field) && field.forceUppercase) {
     nextValue = nextValue.toUpperCase();
   }
 
   if (
-    supportsLengthConstraints(field) &&
+    supportsUppercaseConstraint(field) &&
     typeof field.maxLength === "number" &&
     field.maxLength > 0
   ) {
@@ -186,13 +222,14 @@ function getConstraintHint(field: ServiceFormField) {
   }
 
   const hints: string[] = [];
+  const lengthUnit = field.fieldType === "number" ? "digits" : "chars";
   if (typeof field.minLength === "number") {
-    hints.push(`Min ${field.minLength} chars`);
+    hints.push(`Min ${field.minLength} ${lengthUnit}`);
   }
   if (typeof field.maxLength === "number") {
-    hints.push(`Max ${field.maxLength} chars`);
+    hints.push(`Max ${field.maxLength} ${lengthUnit}`);
   }
-  if (field.forceUppercase) {
+  if (supportsUppercaseConstraint(field) && field.forceUppercase) {
     hints.push("ALL CAPS");
   }
 
@@ -420,6 +457,64 @@ function OrdersPageContent() {
     }
   }
 
+  function setServiceLevelEntryFieldValue(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    entryIndex: number,
+    rawValue: string,
+  ) {
+    if (!serviceForm.allowMultipleEntries || field.fieldType === "file") {
+      return;
+    }
+
+    const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+    const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+    const nextValues = parseRepeatableAnswerValues(answer.value);
+
+    while (nextValues.length <= entryIndex) {
+      nextValues.push("");
+    }
+
+    nextValues[entryIndex] = normalizeAnswerValue(field, rawValue);
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: serializeRepeatableAnswerValues(nextValues),
+    });
+  }
+
+  function setServiceLevelEntryNotApplicable(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    entryIndex: number,
+    checked: boolean,
+    notApplicableText: string,
+  ) {
+    if (!serviceForm.allowMultipleEntries || field.fieldType === "file") {
+      return;
+    }
+
+    const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+    const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+    const nextValues = parseRepeatableAnswerValues(answer.value);
+
+    while (nextValues.length <= entryIndex) {
+      nextValues.push("");
+    }
+
+    nextValues[entryIndex] = checked ? notApplicableText : "";
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      notApplicableText: notApplicableText,
+      value: serializeRepeatableAnswerValues(nextValues),
+    });
+  }
+
   async function onFileChange(
     requestId: string,
     serviceId: string,
@@ -477,20 +572,37 @@ function OrdersPageContent() {
           answer.notApplicableText?.trim() ||
           "Not Applicable";
         const usesRepeatableMode = supportsRepeatable(field, serviceAllowsMultipleEntries);
+        const normalizedRepeatableValues = parseRepeatableAnswerValues(answer.value)
+          .map((entry) => {
+            const trimmedEntry = entry.trim();
+            if (
+              Boolean(field.allowNotApplicable) &&
+              trimmedEntry &&
+              trimmedEntry === resolvedNotApplicableText
+            ) {
+              return resolvedNotApplicableText;
+            }
+
+            return normalizeAnswerValue(field, entry).trim();
+          })
+          .filter(Boolean);
+        const hasRepeatableNotApplicableEntry =
+          usesRepeatableMode &&
+          Boolean(field.allowNotApplicable) &&
+          normalizedRepeatableValues.some((entry) => entry === resolvedNotApplicableText);
         const normalizedValue = usesRepeatableMode
-          ? serializeRepeatableAnswerValues(
-              parseRepeatableAnswerValues(answer.value)
-                .map((entry) => normalizeAnswerValue(field, entry).trim())
-                .filter(Boolean),
-            )
+          ? serializeRepeatableAnswerValues(normalizedRepeatableValues)
           : normalizeAnswerValue(field, answer.value);
 
         return {
           fieldKey: fieldStorageKey,
           question: field.question,
           repeatable: usesRepeatableMode,
-          notApplicable: isNotApplicable,
-          notApplicableText: isNotApplicable ? resolvedNotApplicableText : "",
+          notApplicable: isNotApplicable || hasRepeatableNotApplicableEntry,
+          notApplicableText:
+            isNotApplicable || hasRepeatableNotApplicableEntry
+              ? resolvedNotApplicableText
+              : "",
           value: isNotApplicable ? resolvedNotApplicableText : normalizedValue,
           fileName: answer.fileName,
           fileMimeType: answer.fileMimeType,
@@ -617,46 +729,60 @@ function OrdersPageContent() {
                         <div
                           key={`${item._id}-${serviceForm.serviceId}`}
                           style={{
-                            border: "1px solid #E0E0E0",
-                            borderRadius: "12px",
-                            padding: "0.75rem",
-                            background: "#F8F9FA",
+                            border: "1px solid #E2E8F0",
+                            borderRadius: "16px",
+                            padding: "1.5rem",
+                            background: "#FFFFFF",
+                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)",
                             display: "grid",
-                            gap: "0.75rem",
+                            gap: "1.25rem",
                           }}
                         >
                           <strong>{serviceForm.serviceName}</strong>
 
-                          {serviceForm.allowMultipleEntries ? (
+                          {Boolean(serviceForm.allowMultipleEntries) ? (
                             <div
                               style={{
-                                border: "1px solid #DDE5EF",
-                                borderRadius: "10px",
-                                padding: "0.6rem 0.7rem",
-                                background: "#F4F9FF",
+                                border: "1px solid #E2E8F0",
+                                borderRadius: "12px",
+                                padding: "1rem",
+                                background: "#F8FAFC",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "space-between",
-                                gap: "0.7rem",
+                                gap: "1rem",
                                 flexWrap: "wrap",
                               }}
                             >
-                              <span style={{ color: "#466189", fontSize: "0.84rem", fontWeight: 600 }}>
+                              <span style={{ color: "#334155", fontSize: "0.95rem", fontWeight: 600 }}>
                                 {serviceForm?.multipleEntriesLabel || "Whole-service entries"}: {getServiceLevelEntryCount(item, serviceForm)}
                               </span>
-                              <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                                <span
+                                  style={{
+                                    padding: "0.45rem 0.75rem",
+                                    borderRadius: "999px",
+                                    background: "#E0F2FE",
+                                    border: "1px solid #BAE6FD",
+                                    color: "#0C4A6E",
+                                    fontSize: "0.8rem",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {serviceForm?.multipleEntriesLabel?.trim() || "Whole-service entries"}
+                                </span>
                                 <button
                                   className="btn btn-secondary"
                                   type="button"
-                                  style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", borderRadius: "8px", background: "#EFF6FF", color: "#2563EB", border: "1px solid #BFDBFE", fontWeight: 600, cursor: "pointer", transition: "all 0.2s" }}
                                   onClick={() => addServiceLevelEntry(item, serviceForm)}
                                 >
-                                  + Add another entry
+                                  + Add another {serviceForm?.multipleEntriesLabel?.trim() || "entry"}
                                 </button>
                                 <button
                                   className="btn btn-secondary"
                                   type="button"
-                                  style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", borderRadius: "8px", background: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA", fontWeight: 600, cursor: "pointer", transition: "all 0.2s" }}
                                   disabled={getServiceLevelEntryCount(item, serviceForm) <= 1}
                                   onClick={() => removeServiceLevelEntry(item, serviceForm)}
                                 >
@@ -668,6 +794,277 @@ function OrdersPageContent() {
 
                           {serviceForm.fields.length === 0 ? (
                             <p className="block-subtitle">No custom form fields for this service.</p>
+                          ) : Boolean(serviceForm.allowMultipleEntries) ? (
+                            <div style={{ display: "grid", gap: "0.75rem" }}>
+                              {Array.from({ length: getServiceLevelEntryCount(item, serviceForm) }).map((_, serviceEntryIndex) => (
+                                <div
+                                  key={`${item._id}-${serviceForm.serviceId}-entry-${serviceEntryIndex}`}
+                                  style={{
+                                    border: "1px solid #E2E8F0",
+                                    borderRadius: "12px",
+                                    background: "#F8FAFC",
+                                    padding: "1.25rem",
+                                    display: "grid",
+                                    gap: "1.25rem",
+                                    boxShadow: "inset 0 2px 4px 0 rgba(0, 0, 0, 0.02)",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      gap: "0.5rem",
+                                      borderBottom: "2px solid #E2E8F0",       
+                                      paddingBottom: "0.75rem",
+                                    }}
+                                  >
+                                    <strong style={{ fontSize: "1rem", color: "#1E293B", fontWeight: 700 }}>
+                                      Entry {serviceEntryIndex + 1}
+                                    </strong>
+                                  </div>
+
+                                  <div style={{ display: "grid", gap: "0.7rem" }}>
+                                    {serviceForm.fields.map((field) => {
+                                      const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+                                      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+                                      const labelText = `${field.question}${field.required ? " *" : ""}`;
+                                      const isRejectedField = rejectedFieldSet.has(
+                                        buildRejectedFieldKey(
+                                          serviceForm.serviceId,
+                                          field.fieldKey ?? "",
+                                          field.question,
+                                        ),
+                                      );
+                                      const correctionStyle = isRejectedField
+                                        ? {
+                                            border: "1px solid #F5C2C7",
+                                            borderRadius: "10px",
+                                            background: "#FFF7F7",
+                                            padding: "0.55rem 0.6rem",
+                                          }
+                                        : undefined;
+                                      const constraintHint = getConstraintHint(field);
+
+                                      if (field.fieldType === "file") {
+                                        if (serviceEntryIndex > 0) {
+                                          return null;
+                                        }
+
+                                        return (
+                                          <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
+                                            <label className="label">
+                                              <QuestionPrompt
+                                                iconKey={field.iconKey}
+                                                labelText={labelText}
+                                                isRejectedField={isRejectedField}
+                                              />
+                                            </label>
+                                            <input
+                                              className="input"
+                                              type="file"
+                                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                              onChange={(e) =>
+                                                onFileChange(
+                                                  item._id,
+                                                  serviceForm.serviceId,
+                                                  fieldStorageKey,
+                                                  e.target.files?.[0] ?? null,
+                                                )
+                                              }
+                                              required={field.required && !answer.fileData}
+                                            />
+                                            <p style={{ margin: "0.35rem 0 0", color: "#6C757D", fontSize: "0.86rem" }}>
+                                              PDF, JPG, PNG only. Maximum size 5MB.
+                                            </p>
+                                            {getServiceLevelEntryCount(item, serviceForm) > 1 ? (
+                                              <p style={{ margin: "0.2rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                                This uploaded file is shared across all whole-service entries.
+                                              </p>
+                                            ) : null}
+                                            {answer.fileData ? (
+                                              <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
+                                                <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#4A90E2", fontWeight: 700 }}>
+                                                  {answer.fileName || "View uploaded file"}
+                                                </a>
+                                                {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      }
+
+                                      const repeatableValues = parseRepeatableAnswerValues(answer.value);
+                                      const entryValue = repeatableValues[serviceEntryIndex] ?? "";
+                                      const resolvedNotApplicableText =
+                                        field.notApplicableText?.trim() ||
+                                        answer.notApplicableText?.trim() ||
+                                        "Not Applicable";
+                                      const supportsEntryNotApplicable =
+                                        Boolean(field.allowNotApplicable);
+                                      const isEntryNotApplicable =
+                                        supportsEntryNotApplicable &&
+                                        entryValue.trim() === resolvedNotApplicableText;
+                                      const entryNotApplicableToggle = supportsEntryNotApplicable ? (
+                                        <label
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "0.4rem",
+                                            color: "#4A5E79",
+                                            fontSize: "0.82rem",
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isEntryNotApplicable}
+                                            onChange={(e) =>
+                                              setServiceLevelEntryNotApplicable(
+                                                item,
+                                                serviceForm,
+                                                field,
+                                                serviceEntryIndex,
+                                                e.target.checked,
+                                                resolvedNotApplicableText,
+                                              )
+                                            }
+                                          />
+                                          {resolvedNotApplicableText}
+                                        </label>
+                                      ) : null;
+                                      const questionRepeatableHint = Boolean(field.repeatable) ? (
+                                        <p style={{ margin: 0, color: "#15803D", fontSize: "0.8rem", fontWeight: 600 }}>
+                                          Specific-question multiple entries is enabled in Service Builder.
+                                        </p>
+                                      ) : null;
+
+                                      if (field.fieldType === "long_text") {
+                                        return (
+                                          <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`} style={correctionStyle}>
+                                            <label className="label">
+                                              <QuestionPrompt
+                                                iconKey={field.iconKey}
+                                                labelText={labelText}
+                                                isRejectedField={isRejectedField}
+                                              />
+                                            </label>
+                                            {questionRepeatableHint}
+                                            {entryNotApplicableToggle}
+                                            <textarea
+                                              className="input"
+                                              rows={5}
+                                              value={entryValue}
+                                              onChange={(e) =>
+                                                setServiceLevelEntryFieldValue(
+                                                  item,
+                                                  serviceForm,
+                                                  field,
+                                                  serviceEntryIndex,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                              style={{ minHeight: "120px", resize: "vertical" }}
+                                              required={field.required && !isEntryNotApplicable}
+                                              disabled={isEntryNotApplicable}
+                                            />
+                                            {isEntryNotApplicable ? (
+                                              <p style={{ margin: "0.2rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                                Saved as: {resolvedNotApplicableText}
+                                              </p>
+                                            ) : null}
+                                            {constraintHint ? (
+                                              <p style={{ margin: "0.3rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
+                                                {constraintHint}
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      }
+
+                                      const inputType =
+                                        field.fieldType === "number"
+                                          ? "number"
+                                          : field.fieldType === "date"
+                                            ? "date"
+                                            : "text";
+
+                                      return (
+                                        <div
+                                          key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
+                                          style={
+                                            isRejectedField
+                                              ? {
+                                                  display: "grid",
+                                                  gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                                  gap: "0.7rem",
+                                                  alignItems: "center",
+                                                  border: "1px solid #F5C2C7",
+                                                  borderRadius: "10px",
+                                                  background: "#FFF7F7",
+                                                  padding: "0.55rem 0.6rem",
+                                                }
+                                              : {
+                                                  display: "grid",
+                                                  gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                                  gap: "0.7rem",
+                                                  alignItems: "center",
+                                                }
+                                          }
+                                        >
+                                          <label className="label" style={{ marginBottom: 0 }}>
+                                            <QuestionPrompt
+                                              iconKey={field.iconKey}
+                                              labelText={labelText}
+                                              isRejectedField={isRejectedField}
+                                            />
+                                          </label>
+                                          <div style={{ display: "grid", gap: "0.3rem" }}>
+                                            {questionRepeatableHint}
+                                            {entryNotApplicableToggle}
+                                            <input
+                                              className="input"
+                                              type={inputType}
+                                              value={entryValue}
+                                              onChange={(e) =>
+                                                setServiceLevelEntryFieldValue(
+                                                  item,
+                                                  serviceForm,
+                                                  field,
+                                                  serviceEntryIndex,
+                                                  e.target.value,
+                                                )
+                                              }
+                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                              required={field.required && !isEntryNotApplicable}
+                                              disabled={isEntryNotApplicable}
+                                            />
+                                            {isEntryNotApplicable ? (
+                                              <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                                Saved as: {resolvedNotApplicableText}
+                                              </p>
+                                            ) : null}
+                                            {field.fieldType === "date" ? (
+                                              <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                                Pick a date from the calendar.
+                                              </p>
+                                            ) : null}
+                                            {constraintHint ? (
+                                              <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                                {constraintHint}
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           ) : (
                             serviceForm.fields.map((field) => {
                               const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);

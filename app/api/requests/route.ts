@@ -55,7 +55,23 @@ const submitSchema = z.object({
 });
 
 function supportsLengthConstraints(fieldType: string) {
+  return fieldType === "text" || fieldType === "long_text" || fieldType === "number";
+}
+
+function supportsLengthTruncation(fieldType: string) {
   return fieldType === "text" || fieldType === "long_text";
+}
+
+function resolveLengthComparableValue(value: string, fieldType: string) {
+  if (fieldType === "number") {
+    return value.replace(/\D/g, "");
+  }
+
+  return value;
+}
+
+function resolveLengthUnit(fieldType: string) {
+  return fieldType === "number" ? "digits" : "characters";
 }
 
 function applyAnswerFormatting(
@@ -73,7 +89,7 @@ function applyAnswerFormatting(
   }
 
   if (
-    supportsLengthConstraints(field.fieldType) &&
+    supportsLengthTruncation(field.fieldType) &&
     typeof field.maxLength === "number" &&
     field.maxLength > 0
   ) {
@@ -432,7 +448,7 @@ export async function PATCH(req: NextRequest) {
         Boolean(incomingAnswer.notApplicable);
       const hasLengthConstraints = supportsLengthConstraints(field.fieldType);
 
-      let normalizedValue = applyAnswerFormatting(value, field);
+      const normalizedValue = applyAnswerFormatting(value, field);
 
       const trimmedValue = normalizedValue.trim();
 
@@ -495,6 +511,8 @@ export async function PATCH(req: NextRequest) {
         const normalizedValues = parsedValues
           .map((entry) => applyAnswerFormatting(entry, field).trim())
           .filter(Boolean);
+        const isNotApplicableRepeatableEntry = (entry: string) =>
+          allowNotApplicable && entry === notApplicableText;
 
         if (isRequired && normalizedValues.length === 0 && !validationError) {
           validationError = `${field.question} is required.`;
@@ -502,6 +520,10 @@ export async function PATCH(req: NextRequest) {
 
         if (field.fieldType === "number") {
           for (const entry of normalizedValues) {
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
             const parsedNumber = Number(entry);
             if (Number.isNaN(parsedNumber) && !validationError) {
               validationError = `${field.question} must contain valid numbers.`;
@@ -511,6 +533,10 @@ export async function PATCH(req: NextRequest) {
 
         if (field.fieldType === "date") {
           for (const entry of normalizedValues) {
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
             const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(entry);
             const dateValue = new Date(`${entry}T00:00:00.000Z`);
             if ((!isIsoDate || Number.isNaN(dateValue.getTime())) && !validationError) {
@@ -521,23 +547,37 @@ export async function PATCH(req: NextRequest) {
 
         if (hasLengthConstraints) {
           for (const entry of normalizedValues) {
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
+            const comparableLengthValue = resolveLengthComparableValue(entry, field.fieldType);
+            const lengthUnit = resolveLengthUnit(field.fieldType);
+
             if (
               typeof field.minLength === "number" &&
-              entry.length < field.minLength &&
+              comparableLengthValue.length < field.minLength &&
               !validationError
             ) {
-              validationError = `${field.question} entries must be at least ${field.minLength} characters.`;
+              validationError = `${field.question} entries must be at least ${field.minLength} ${lengthUnit}.`;
             }
 
             if (
               typeof field.maxLength === "number" &&
-              entry.length > field.maxLength &&
+              comparableLengthValue.length > field.maxLength &&
               !validationError
             ) {
-              validationError = `${field.question} entries must be ${field.maxLength} characters or fewer.`;
+              validationError = `${field.question} entries must be ${field.maxLength} ${lengthUnit} or fewer.`;
             }
           }
         }
+
+        const hasNotApplicableEntries = normalizedValues.some((entry) =>
+          isNotApplicableRepeatableEntry(entry),
+        );
+        const allNotApplicable =
+          hasNotApplicableEntries &&
+          normalizedValues.every((entry) => isNotApplicableRepeatableEntry(entry));
 
         return {
           fieldKey: field.fieldKey,
@@ -545,8 +585,8 @@ export async function PATCH(req: NextRequest) {
           fieldType: field.fieldType,
           required: isRequired,
           repeatable: true,
-          notApplicable: false,
-          notApplicableText: "",
+          notApplicable: allNotApplicable,
+          notApplicableText: hasNotApplicableEntries ? notApplicableText : "",
           value: JSON.stringify(normalizedValues),
           fileName: "",
           fileMimeType: "",
@@ -575,20 +615,23 @@ export async function PATCH(req: NextRequest) {
       }
 
       if (hasLengthConstraints && trimmedValue) {
+        const comparableLengthValue = resolveLengthComparableValue(trimmedValue, field.fieldType);
+        const lengthUnit = resolveLengthUnit(field.fieldType);
+
         if (
           typeof field.minLength === "number" &&
-          trimmedValue.length < field.minLength &&
+          comparableLengthValue.length < field.minLength &&
           !validationError
         ) {
-          validationError = `${field.question} must be at least ${field.minLength} characters.`;
+          validationError = `${field.question} must be at least ${field.minLength} ${lengthUnit}.`;
         }
 
         if (
           typeof field.maxLength === "number" &&
-          trimmedValue.length > field.maxLength &&
+          comparableLengthValue.length > field.maxLength &&
           !validationError
         ) {
-          validationError = `${field.question} must be ${field.maxLength} characters or fewer.`;
+          validationError = `${field.question} must be ${field.maxLength} ${lengthUnit} or fewer.`;
         }
       }
 
