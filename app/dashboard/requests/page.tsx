@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { ListChecks, Search } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard } from "@/components/ui/blocks";
+import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
 
@@ -31,6 +32,15 @@ function parseRepeatableAnswerValues(rawValue: string, repeatable?: boolean) {
   } catch {
     return [];
   }
+}
+
+function formatServiceLabelWithHistory(service: RequestItem["selectedServices"][number]) {
+  const historyWindow = formatRequestedHistoryWindow(service.yearsOfChecking);
+  if (!historyWindow) {
+    return service.serviceName;
+  }
+
+  return `${service.serviceName} ${historyWindow}`;
 }
 
 function RequestsPageContent() {
@@ -75,7 +85,7 @@ function RequestsPageContent() {
         item.status,
         item.candidateFormStatus,
         item.rejectionNote,
-        item.selectedServices.map((service) => service.serviceName).join(" "),
+        item.selectedServices.map((service) => formatServiceLabelWithHistory(service)).join(" "),
       ]
         .join(" ")
         .toLowerCase();
@@ -228,9 +238,33 @@ function RequestsPageContent() {
                       </div>
                       <div className="flex flex-col gap-1 pt-2 mt-2 border-t border-gray-200 dark:border-gray-700 text-sm">
                         <span className="text-gray-500 dark:text-gray-400 text-sm">Required Services</span>
-                        <span className="font-medium text-gray-900 dark:text-white text-sm">
-                          {item.selectedServices.map((service) => service.serviceName).join(", ") || "-"}
-                        </span>
+                        <div className="mt-1 grid gap-2">
+                          {item.selectedServices.length === 0 ? (
+                            <span className="font-medium text-gray-900 dark:text-white text-sm">-</span>
+                          ) : (
+                            item.selectedServices.map((service) => {
+                              const historyWindow = formatRequestedHistoryWindow(
+                                service.yearsOfChecking,
+                              );
+
+                              return (
+                                <div
+                                  key={`${item._id}-${service.serviceId}`}
+                                  className="flex flex-wrap items-center gap-2"
+                                >
+                                  <span className="font-medium text-gray-900 dark:text-white text-sm">
+                                    {service.serviceName}
+                                  </span>
+                                  {historyWindow ? (
+                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+                                      Requested history: {historyWindow}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

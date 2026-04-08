@@ -10,6 +10,10 @@ const schema = z.object({
   password: z.string().min(6),
 });
 
+function looksLikeBcryptHash(value: string) {
+  return /^\$2[aby]\$\d{2}\$/.test(value);
+}
+
 export async function POST(req: Request) {
   let body: unknown;
 
@@ -25,17 +29,59 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input." }, { status: 400 });
   }
 
+  const hasMongoUri = Boolean(process.env.MONGODB_URI?.trim());
+  const hasJwtSecret = Boolean(process.env.JWT_SECRET?.trim());
+  if (!hasMongoUri || !hasJwtSecret) {
+    console.error("[candidate-login] Missing required env vars", {
+      hasMongoUri,
+      hasJwtSecret,
+    });
+    return NextResponse.json(
+      { error: "Unable to sign in right now. Please try again." },
+      { status: 500 },
+    );
+  }
+
   try {
     await connectMongo();
 
-    const user = await User.findOne({ email: parsed.data.email.toLowerCase() }).lean();
+    const user = await User.findOne({ email: parsed.data.email.toLowerCase() })
+      .select("_id role passwordHash")
+      .lean();
     if (!user || user.role !== "candidate") {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
     }
 
-    const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
-    if (!ok) {
+    const storedPasswordHash = typeof user.passwordHash === "string" ? user.passwordHash : "";
+    if (!storedPasswordHash) {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+    }
+
+    let isPasswordValid = false;
+    let shouldUpgradeLegacyPassword = false;
+
+    if (looksLikeBcryptHash(storedPasswordHash)) {
+      try {
+        isPasswordValid = await bcrypt.compare(parsed.data.password, storedPasswordHash);
+      } catch {
+        isPasswordValid = false;
+      }
+    } else {
+      // Backward compatibility for legacy records that might still store plain passwords.
+      isPasswordValid = parsed.data.password === storedPasswordHash;
+      shouldUpgradeLegacyPassword = isPasswordValid;
+    }
+
+    if (!isPasswordValid) {
+      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+    }
+
+    if (shouldUpgradeLegacyPassword) {
+      const upgradedHash = await bcrypt.hash(parsed.data.password, 10);
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { passwordHash: upgradedHash } },
+      );
     }
 
     const token = signCandidateToken({
@@ -53,7 +99,8 @@ export async function POST(req: Request) {
     });
 
     return res;
-  } catch {
+  } catch (error) {
+    console.error("[candidate-login] Login failed", error);
     return NextResponse.json(
       { error: "Unable to sign in right now. Please try again." },
       { status: 500 },

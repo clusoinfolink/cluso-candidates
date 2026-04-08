@@ -235,6 +235,8 @@ export async function GET(req: NextRequest) {
       serviceName: service.serviceName,
       price: service.price,
       currency: service.currency,
+      yearsOfChecking:
+        typeof service.yearsOfChecking === "string" ? service.yearsOfChecking : "default",
     }));
 
     return {
@@ -331,6 +333,8 @@ export async function PATCH(req: NextRequest) {
   const selectedServices = (requestDoc.selectedServices ?? []).map((service) => ({
     serviceId: normalizeServiceId(service.serviceId),
     serviceName: service.serviceName,
+    yearsOfChecking:
+      typeof service.yearsOfChecking === "string" ? service.yearsOfChecking : "default",
   }));
 
   if (selectedServices.length === 0) {

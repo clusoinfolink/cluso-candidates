@@ -23,6 +23,7 @@ import {
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
 import { getAlertTone } from "@/lib/alerts";
+import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
 import { RequestItem, ServiceFormField } from "@/lib/types";
@@ -261,6 +262,19 @@ function parseRepeatableAnswerValues(rawValue: string) {
 
 function serializeRepeatableAnswerValues(values: string[]) {
   return JSON.stringify(values);
+}
+
+function formatServiceSummaryWithHistory(item: RequestItem) {
+  return item.selectedServices
+    .map((service) => {
+      const historyWindow = formatRequestedHistoryWindow(service.yearsOfChecking);
+      if (!historyWindow) {
+        return service.serviceName;
+      }
+
+      return `${service.serviceName} (${historyWindow})`;
+    })
+    .join(", ");
 }
 
 function OrdersPageContent() {
@@ -689,7 +703,7 @@ function OrdersPageContent() {
                       </span>
                       <span className="request-accordion-status" style={{ display: "block", marginTop: "0.15rem" }}>
                         Request created {new Date(item.createdAt).toLocaleDateString()} | {" "}
-                        {item.selectedServices.map((service) => service.serviceName).join(", ")}
+                        {formatServiceSummaryWithHistory(item)}
                       </span>
                     </span>
                   </span>
@@ -739,6 +753,37 @@ function OrdersPageContent() {
                           }}
                         >
                           <strong>{serviceForm.serviceName}</strong>
+
+                          {(() => {
+                            const serviceHistoryWindow = formatRequestedHistoryWindow(
+                              item.selectedServices.find(
+                                (service) => service.serviceId === serviceForm.serviceId,
+                              )?.yearsOfChecking,
+                            );
+
+                            if (!serviceHistoryWindow) {
+                              return null;
+                            }
+
+                            return (
+                              <div
+                                style={{
+                                  marginTop: "-0.55rem",
+                                  border: "1px solid #FDE68A",
+                                  borderRadius: "10px",
+                                  background: "#FFFBEB",
+                                  padding: "0.48rem 0.62rem",
+                                }}
+                              >
+                                <p style={{ margin: 0, color: "#92400E", fontSize: "0.84rem", fontWeight: 600 }}>
+                                  Requested history:{" "}
+                                  <span style={{ color: "#78350F", fontSize: "0.88rem", fontWeight: 800 }}>
+                                    {serviceHistoryWindow}
+                                  </span>
+                                </p>
+                              </div>
+                            );
+                          })()}
 
                           {Boolean(serviceForm.allowMultipleEntries) ? (
                             <div

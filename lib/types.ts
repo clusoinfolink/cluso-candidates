@@ -5,6 +5,7 @@ export type ServiceOption = {
   serviceName: string;
   price: number;
   currency: "INR" | "USD";
+  yearsOfChecking?: string;
 };
 
 export type ServiceFormField = {

@@ -106,6 +106,7 @@ const VerificationRequestSchema = new Schema(
         serviceName: { type: String, required: true },
         price: { type: Number, required: true },
         currency: { type: String, enum: SUPPORTED_CURRENCIES, default: "INR" },
+        yearsOfChecking: { type: String, default: "default" },
       },
     ],
     serviceVerifications: [
@@ -194,6 +195,7 @@ if (
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.notApplicableText") ||
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.required") ||
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.repeatable") ||
+    !models.VerificationRequest.schema.path("selectedServices.yearsOfChecking") ||
     !models.VerificationRequest.schema.path("enterpriseApprovedAt") ||
     !models.VerificationRequest.schema.path("enterpriseDecisionLockedAt") ||
     !models.VerificationRequest.schema.path("serviceVerifications") ||
