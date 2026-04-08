@@ -9,6 +9,7 @@ import { BlockCard } from "@/components/ui/blocks";
 import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
+import { RequestItem } from "@/lib/types";
 
 function parseRepeatableAnswerValues(rawValue: string, repeatable?: boolean) {
   if (!repeatable) {
