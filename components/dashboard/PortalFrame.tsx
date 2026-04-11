@@ -9,6 +9,7 @@ import {
   CheckCheck,
   FileSignature,
   ListChecks,
+  MoreHorizontal,
   Settings,
   LayoutDashboard,
   LogOut,
@@ -113,6 +114,7 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
   const router = useRouter();
   const notificationWrapRef = useRef<HTMLDivElement | null>(null);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [clearedNotificationIds, setClearedNotificationIds] = useState<string[]>([]);
 
   const requestsQuery = useQuery<RequestItem[]>({
@@ -263,7 +265,11 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
 
   return (
     <div className="admin-layout">
-      <aside className="admin-sidebar" aria-label="Portal navigation menu">
+      <aside
+        id="candidate-mobile-nav"
+        className={`admin-sidebar ${isMobileNavOpen ? "mobile-open" : ""}`}
+        aria-label="Portal navigation menu"
+      >
         <div className="sidebar-brand flex items-center justify-center p-4">
           <Image
             src="/images/cluso-infolink-logo.png"
@@ -281,6 +287,7 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => setIsMobileNavOpen(false)}
                 className={`portal-nav-link ${isNavActive(pathname, item.href) ? "active" : ""}`}
               >
                 <Icon size={18} />
@@ -291,13 +298,34 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
         </nav>
       </aside>
 
+      {isMobileNavOpen ? (
+        <button
+          type="button"
+          className="portal-mobile-backdrop"
+          aria-label="Close navigation menu"
+          onClick={() => setIsMobileNavOpen(false)}
+        />
+      ) : null}
+
       <main className="admin-main">
         <header className="admin-topbar">
-          <div style={{ display: "grid", gap: "0.15rem" }}>
-            <h1 className="admin-topbar-title">{title || "Candidate Panel"}</h1>
-            {subtitle ? (
-              <p style={{ margin: 0, color: "#6B7A90", fontSize: "0.85rem" }}>{subtitle}</p>
-            ) : null}
+          <div className="portal-topbar-leading" style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+            <button
+              type="button"
+              className="portal-nav-overflow-trigger"
+              onClick={() => setIsMobileNavOpen((prev) => !prev)}
+              aria-label="More options"
+              aria-expanded={isMobileNavOpen}
+              aria-controls="candidate-mobile-nav"
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            <div style={{ display: "grid", gap: "0.15rem" }}>
+              <h1 className="admin-topbar-title">{title || "Candidate Panel"}</h1>
+              {subtitle ? (
+                <p style={{ margin: 0, color: "#6B7A90", fontSize: "0.85rem" }}>{subtitle}</p>
+              ) : null}
+            </div>
           </div>
           <div className="account-actions-wrap">
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 500 }}>
