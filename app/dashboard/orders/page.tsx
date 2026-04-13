@@ -573,6 +573,9 @@ function OrdersPageContent() {
 
     const responses = item.serviceForms.map((serviceForm) => ({
       serviceId: serviceForm.serviceId,
+      serviceEntryCount: serviceForm.allowMultipleEntries
+        ? Math.max(1, getServiceLevelEntryCount(item, serviceForm))
+        : 1,
       answers: serviceForm.fields.map((field) => {
         const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);
         const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();

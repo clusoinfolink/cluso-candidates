@@ -36,6 +36,7 @@ const submitSchema = z.object({
   responses: z.array(
     z.object({
       serviceId: z.string().min(1),
+      serviceEntryCount: z.number().int().min(1).optional().default(1),
       answers: z.array(
         z.object({
           fieldKey: z.string().optional().default(""),
@@ -53,6 +54,22 @@ const submitSchema = z.object({
     }),
   ),
 });
+
+type SubmittedAnswerPayload = {
+  value: string;
+  repeatable: boolean;
+  notApplicable: boolean;
+  notApplicableText: string;
+  fileName: string;
+  fileMimeType: string;
+  fileSize: number | null;
+  fileData: string;
+};
+
+type SubmittedServicePayload = {
+  serviceEntryCount: number;
+  answers: Map<string, SubmittedAnswerPayload>;
+};
 
 function supportsLengthConstraints(fieldType: string) {
   return fieldType === "text" || fieldType === "long_text" || fieldType === "number";
@@ -115,6 +132,15 @@ function parseRepeatableValues(rawValue: string) {
   }
 
   return [rawValue];
+}
+
+function normalizeServiceEntryCount(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.floor(parsed));
 }
 
 function normalizeServiceId(serviceId: unknown) {
@@ -265,6 +291,7 @@ export async function GET(req: NextRequest) {
       candidateFormResponses: (item.candidateFormResponses ?? []).map((serviceResponse) => ({
         serviceId: normalizeServiceId(serviceResponse.serviceId),
         serviceName: serviceResponse.serviceName,
+        serviceEntryCount: normalizeServiceEntryCount(serviceResponse.serviceEntryCount),
         answers: (serviceResponse.answers ?? []).map((answer, answerIndex) => ({
           fieldKey: resolveFieldKey(answer.fieldKey, answer.question, answerIndex),
           question: answer.question,
@@ -370,23 +397,11 @@ export async function PATCH(req: NextRequest) {
     ]),
   );
 
-  const responseMap = new Map(
+  const responseMap = new Map<string, SubmittedServicePayload>(
     parsed.data.responses.map((serviceResponse) => [
       serviceResponse.serviceId,
       (() => {
-        const serviceAnswerMap = new Map<
-          string,
-          {
-            value: string;
-            repeatable: boolean;
-            notApplicable: boolean;
-            notApplicableText: string;
-            fileName: string;
-            fileMimeType: string;
-            fileSize: number | null;
-            fileData: string;
-          }
-        >();
+        const serviceAnswerMap = new Map<string, SubmittedAnswerPayload>();
 
         for (const answer of serviceResponse.answers) {
           const normalizedQuestion = answer.question.trim();
@@ -409,7 +424,10 @@ export async function PATCH(req: NextRequest) {
           serviceAnswerMap.set(`question:${normalizedQuestion}`, payload);
         }
 
-        return serviceAnswerMap;
+        return {
+          serviceEntryCount: normalizeServiceEntryCount(serviceResponse.serviceEntryCount),
+          answers: serviceAnswerMap,
+        };
       })(),
     ]),
   );
@@ -420,7 +438,11 @@ export async function PATCH(req: NextRequest) {
     const serviceDefinition = serviceMap.get(selectedService.serviceId);
     const serviceAllowsMultipleEntries = Boolean(serviceDefinition?.allowMultipleEntries);
     const formFields = serviceDefinition?.formFields ?? [];
-    const submittedAnswers = responseMap.get(selectedService.serviceId) ?? new Map();
+    const submittedServicePayload = responseMap.get(selectedService.serviceId);
+    const submittedAnswers = submittedServicePayload?.answers ?? new Map<string, SubmittedAnswerPayload>();
+    const serviceEntryCount = serviceAllowsMultipleEntries
+      ? normalizeServiceEntryCount(submittedServicePayload?.serviceEntryCount)
+      : 1;
 
     const answers = formFields.map((field) => {
       const incomingAnswer =
@@ -658,6 +680,7 @@ export async function PATCH(req: NextRequest) {
     return {
       serviceId: selectedService.serviceId,
       serviceName: selectedService.serviceName,
+      serviceEntryCount,
       answers,
     };
   });

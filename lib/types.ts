@@ -40,6 +40,7 @@ export type CandidateAnswer = {
 export type CandidateServiceResponse = {
   serviceId: string;
   serviceName: string;
+  serviceEntryCount?: number;
   answers: CandidateAnswer[];
 };
 
