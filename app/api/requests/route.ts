@@ -71,6 +71,21 @@ type SubmittedServicePayload = {
   answers: Map<string, SubmittedAnswerPayload>;
 };
 
+type NormalizedServiceFormField = {
+  fieldKey: string;
+  question: string;
+  iconKey: string;
+  fieldType: "text" | "long_text" | "number" | "file" | "date" | "dropdown";
+  required: boolean;
+  repeatable: boolean;
+  minLength: number | null;
+  maxLength: number | null;
+  forceUppercase: boolean;
+  allowNotApplicable: boolean;
+  notApplicableText: string;
+  dropdownOptions: string[];
+};
+
 function supportsLengthConstraints(fieldType: string) {
   return fieldType === "text" || fieldType === "long_text" || fieldType === "number";
 }
@@ -94,7 +109,14 @@ function resolveLengthUnit(fieldType: string) {
 function applyAnswerFormatting(
   rawValue: string,
   field: {
-    fieldType: "text" | "long_text" | "number" | "file" | "date";
+    fieldType:
+      | "text"
+      | "long_text"
+      | "number"
+      | "file"
+      | "date"
+      | "dropdown"
+      | "composite";
     forceUppercase?: boolean;
     maxLength?: number | null;
   },
@@ -174,6 +196,138 @@ function normalizeQuestionIconKey(rawIconKey: unknown) {
     : DEFAULT_QUESTION_ICON_KEY;
 }
 
+function normalizeDropdownOptions(rawOptions: unknown) {
+  if (!Array.isArray(rawOptions)) {
+    return [] as string[];
+  }
+
+  return [...new Set(rawOptions.map((option) => String(option ?? "").trim()).filter(Boolean))];
+}
+
+function normalizeSubFieldType(rawFieldType: unknown): "text" | "number" | "date" | "dropdown" {
+  if (rawFieldType === "text" || rawFieldType === "number" || rawFieldType === "date" || rawFieldType === "dropdown") {
+    return rawFieldType;
+  }
+
+  return "text";
+}
+
+function expandServiceFormFields(rawFields: unknown): NormalizedServiceFormField[] {
+  if (!Array.isArray(rawFields)) {
+    return [];
+  }
+
+  const expandedFields: NormalizedServiceFormField[] = [];
+
+  rawFields.forEach((rawField, index) => {
+    if (!rawField || typeof rawField !== "object") {
+      return;
+    }
+
+    const field = rawField as {
+      fieldKey?: unknown;
+      question?: unknown;
+      iconKey?: unknown;
+      fieldType?: unknown;
+      subFields?: unknown;
+      dropdownOptions?: unknown;
+      required?: unknown;
+      repeatable?: unknown;
+      minLength?: unknown;
+      maxLength?: unknown;
+      forceUppercase?: unknown;
+      allowNotApplicable?: unknown;
+      notApplicableText?: unknown;
+    };
+
+    const baseQuestion = String(field.question ?? "").trim();
+    const baseFieldKey = resolveFieldKey(field.fieldKey, baseQuestion, index);
+    const iconKey = normalizeQuestionIconKey(field.iconKey);
+    const required = Boolean(field.required);
+    const minLength = typeof field.minLength === "number" ? field.minLength : null;
+    const maxLength = typeof field.maxLength === "number" ? field.maxLength : null;
+    const forceUppercase = Boolean(field.forceUppercase);
+    const allowNotApplicable = Boolean(field.allowNotApplicable);
+    const notApplicableText =
+      typeof field.notApplicableText === "string" && field.notApplicableText.trim()
+        ? field.notApplicableText.trim()
+        : "Not Applicable";
+    const fieldTypeRaw = String(field.fieldType ?? "").trim().toLowerCase();
+
+    if (fieldTypeRaw === "composite" && Array.isArray(field.subFields) && field.subFields.length > 0) {
+      field.subFields.forEach((rawSubField, subIndex) => {
+        if (!rawSubField || typeof rawSubField !== "object") {
+          return;
+        }
+
+        const subField = rawSubField as {
+          fieldKey?: unknown;
+          question?: unknown;
+          fieldType?: unknown;
+          dropdownOptions?: unknown;
+          required?: unknown;
+        };
+
+        const subQuestion = String(subField.question ?? "").trim();
+        if (!subQuestion) {
+          return;
+        }
+
+        const subFieldType = normalizeSubFieldType(subField.fieldType);
+        const subFieldKey = String(subField.fieldKey ?? "").trim() || `${baseFieldKey}__sub_${subIndex + 1}`;
+
+        expandedFields.push({
+          fieldKey: subFieldKey,
+          question: baseQuestion ? `${baseQuestion} - ${subQuestion}` : subQuestion,
+          iconKey,
+          fieldType: subFieldType,
+          required: Boolean(subField.required) || required,
+          repeatable: false,
+          minLength: supportsLengthConstraints(subFieldType) ? minLength : null,
+          maxLength: supportsLengthConstraints(subFieldType) ? maxLength : null,
+          forceUppercase: subFieldType === "text" ? forceUppercase : false,
+          allowNotApplicable,
+          notApplicableText,
+          dropdownOptions:
+            subFieldType === "dropdown"
+              ? normalizeDropdownOptions(subField.dropdownOptions)
+              : [],
+        });
+      });
+
+      return;
+    }
+
+    const fieldType: NormalizedServiceFormField["fieldType"] =
+      fieldTypeRaw === "long_text" ||
+      fieldTypeRaw === "number" ||
+      fieldTypeRaw === "file" ||
+      fieldTypeRaw === "date" ||
+      fieldTypeRaw === "dropdown"
+        ? fieldTypeRaw
+        : "text";
+
+    expandedFields.push({
+      fieldKey: baseFieldKey,
+      question: baseQuestion,
+      iconKey,
+      fieldType,
+      required,
+      repeatable: fieldType === "file" ? false : Boolean(field.repeatable),
+      minLength: supportsLengthConstraints(fieldType) ? minLength : null,
+      maxLength: supportsLengthConstraints(fieldType) ? maxLength : null,
+      forceUppercase:
+        (fieldType === "text" || fieldType === "long_text") && forceUppercase,
+      allowNotApplicable,
+      notApplicableText,
+      dropdownOptions:
+        fieldType === "dropdown" ? normalizeDropdownOptions(field.dropdownOptions) : [],
+    });
+  });
+
+  return expandedFields;
+}
+
 function candidateOwnershipFilter(candidateEmail: string, candidateUserId: string) {
   return {
     candidateEmail,
@@ -237,19 +391,7 @@ export async function GET(req: NextRequest) {
         name: service.name,
         allowMultipleEntries: Boolean(service.allowMultipleEntries),
           multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
-        formFields: (service.formFields ?? []).map((field, index) => ({
-          fieldKey: resolveFieldKey(field.fieldKey, field.question, index),
-          question: field.question,
-          iconKey: normalizeQuestionIconKey(field.iconKey),
-          fieldType: field.fieldType,
-          required: Boolean(field.required),
-          repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
-          minLength: typeof field.minLength === "number" ? field.minLength : null,
-          maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
-          forceUppercase: Boolean(field.forceUppercase),
-          allowNotApplicable: Boolean(field.allowNotApplicable),
-          notApplicableText: field.notApplicableText?.trim() || "Not Applicable",
-        })),
+        formFields: expandServiceFormFields(service.formFields ?? []),
       },
     ]),
   );
@@ -380,19 +522,7 @@ export async function PATCH(req: NextRequest) {
         name: service.name,
         allowMultipleEntries: Boolean(service.allowMultipleEntries),
           multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
-        formFields: (service.formFields ?? []).map((field, index) => ({
-          fieldKey: resolveFieldKey(field.fieldKey, field.question, index),
-          question: field.question,
-          iconKey: normalizeQuestionIconKey(field.iconKey),
-          fieldType: field.fieldType,
-          required: Boolean(field.required),
-          repeatable: field.fieldType === "file" ? false : Boolean(field.repeatable),
-          minLength: typeof field.minLength === "number" ? field.minLength : null,
-          maxLength: typeof field.maxLength === "number" ? field.maxLength : null,
-          forceUppercase: Boolean(field.forceUppercase),
-          allowNotApplicable: Boolean(field.allowNotApplicable),
-          notApplicableText: field.notApplicableText?.trim() || "Not Applicable",
-        })),
+        formFields: expandServiceFormFields(service.formFields ?? []),
       },
     ]),
   );
@@ -571,6 +701,18 @@ export async function PATCH(req: NextRequest) {
           }
         }
 
+        if (field.fieldType === "dropdown") {
+          for (const entry of normalizedValues) {
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
+            if (!field.dropdownOptions.includes(entry) && !validationError) {
+              validationError = `${field.question} must match one of the configured options.`;
+            }
+          }
+        }
+
         if (hasLengthConstraints) {
           for (const entry of normalizedValues) {
             if (isNotApplicableRepeatableEntry(entry)) {
@@ -638,6 +780,15 @@ export async function PATCH(req: NextRequest) {
         if ((!isIsoDate || Number.isNaN(dateValue.getTime())) && !validationError) {
           validationError = `${field.question} must be a valid date.`;
         }
+      }
+
+      if (
+        field.fieldType === "dropdown" &&
+        trimmedValue &&
+        !field.dropdownOptions.includes(trimmedValue) &&
+        !validationError
+      ) {
+        validationError = `${field.question} must match one of the configured options.`;
       }
 
       if (hasLengthConstraints && trimmedValue) {

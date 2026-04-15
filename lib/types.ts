@@ -1,55 +1,13 @@
+import type { SupportedCurrency } from "@/lib/currencies";
+
+export type AdminRole = "admin" | "superadmin" | "manager" | "verifier";
 export type PortalRole = "candidate";
 
-export type ServiceOption = {
-  serviceId: string;
-  serviceName: string;
-  price: number;
-  currency: "INR" | "USD";
-  yearsOfChecking?: string;
-};
-
-export type ServiceFormField = {
-  fieldKey?: string;
-  question: string;
-  iconKey?: string;
-  fieldType: "text" | "long_text" | "number" | "file" | "date";
-  required: boolean;
-  repeatable?: boolean;
-  minLength?: number | null;
-  maxLength?: number | null;
-  forceUppercase?: boolean;
-  allowNotApplicable?: boolean;
-  notApplicableText?: string;
-};
-
-export type CandidateAnswer = {
-  fieldKey?: string;
-  question: string;
-  fieldType: "text" | "long_text" | "number" | "file" | "date";
-  required?: boolean;
-  repeatable?: boolean;
-  notApplicable?: boolean;
-  notApplicableText?: string;
-  value: string;
-  fileName?: string;
-  fileMimeType?: string;
-  fileSize?: number | null;
-  fileData?: string;
-};
-
-export type CandidateServiceResponse = {
-  serviceId: string;
-  serviceName: string;
-  serviceEntryCount?: number;
-  answers: CandidateAnswer[];
-};
-
-export type RejectedCandidateField = {
-  serviceId: string;
-  serviceName: string;
-  fieldKey?: string;
-  question: string;
-  fieldType: "text" | "long_text" | "number" | "file" | "date";
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
 };
 
 export type PortalUser = {
@@ -71,11 +29,16 @@ export type ServiceVerificationAttempt = {
   status: Exclude<ServiceVerificationStatus, "pending">;
   verificationMode: string;
   comment: string;
+  verifierNote?: string;
   attemptedAt: string;
   verifierId?: string | null;
   verifierName?: string;
   managerId?: string | null;
   managerName?: string;
+  screenshotFileName?: string;
+  screenshotMimeType?: string;
+  screenshotFileSize?: number | null;
+  screenshotData?: string;
 };
 
 export type ServiceVerification = {
@@ -92,10 +55,11 @@ export type ReportMetadata = {
   generatedBy?: string | null;
   generatedByName?: string;
   reportNumber?: string;
+  customerSharedAt?: string | null;
 };
 
 export type InvoiceSnapshot = {
-  currency: "INR" | "USD";
+  currency: SupportedCurrency;
   subtotal: number;
   items: Array<{
     serviceId: string;
@@ -106,33 +70,329 @@ export type InvoiceSnapshot = {
   companyName?: string;
 };
 
+export type ReverificationAppeal = {
+  status: "open" | "resolved";
+  submittedAt: string;
+  submittedBy?: string | null;
+  submittedByName?: string;
+  services?: Array<{
+    serviceId: string;
+    serviceName: string;
+  }>;
+  serviceId?: string;
+  serviceName?: string;
+  comment: string;
+  attachmentFileName?: string;
+  attachmentMimeType?: string;
+  attachmentFileSize?: number | null;
+  attachmentData?: string;
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  resolvedByName?: string;
+};
+
 export type RequestItem = {
   _id: string;
   candidateName: string;
   candidateEmail: string;
   candidatePhone: string;
-  customerName: string;
-  customerEmail: string;
+  verifierNames?: string[];
+  createdByName?: string;
   status: RequestStatus;
-  candidateFormStatus: "pending" | "submitted";
+  rejectionNote: string;
+  candidateFormStatus?: "pending" | "submitted";
   candidateSubmittedAt?: string | null;
   enterpriseApprovedAt?: string | null;
   enterpriseDecisionLockedAt?: string | null;
-  rejectionNote: string;
-  createdAt: string;
-  updatedAt?: string;
-  selectedServices: ServiceOption[];
-  serviceVerifications?: ServiceVerification[];
-  reportMetadata?: ReportMetadata;
-  reportData?: Record<string, unknown> | null;
-  invoiceSnapshot?: InvoiceSnapshot | null;
+  selectedServices: CompanyServiceSelection[];
   serviceForms: Array<{
     serviceId: string;
     serviceName: string;
     allowMultipleEntries?: boolean;
-  multipleEntriesLabel?: string;
+    multipleEntriesLabel?: string;
     fields: ServiceFormField[];
   }>;
-  candidateFormResponses: CandidateServiceResponse[];
-  customerRejectedFields?: RejectedCandidateField[];
+  serviceVerifications?: ServiceVerification[];
+  reportMetadata?: ReportMetadata;
+  reportData?: Record<string, unknown> | null;
+  reverificationAppeal?: ReverificationAppeal | null;
+  invoiceSnapshot?: InvoiceSnapshot | null;
+  customerRejectedFields?: Array<{
+    serviceId: string;
+    serviceName: string;
+    fieldKey?: string;
+    question: string;
+    fieldType:
+      | "text"
+      | "long_text"
+      | "number"
+      | "file"
+      | "date"
+      | "dropdown"
+      | "composite";
+  }>;
+  candidateFormResponses: Array<{
+    serviceId: string;
+    serviceName: string;
+    serviceEntryCount?: number;
+    answers: Array<{
+      fieldKey?: string;
+      question: string;
+      fieldType:
+        | "text"
+        | "long_text"
+        | "number"
+        | "file"
+        | "date"
+        | "dropdown"
+        | "composite";
+      subFields?: Array<{
+        fieldKey?: string;
+        question: string;
+        fieldType: "text" | "number" | "date" | "dropdown";
+        value: string;
+        required?: boolean;
+        dropdownOptions?: string[];
+      }>;
+      required?: boolean;
+      repeatable?: boolean;
+      notApplicable?: boolean;
+      notApplicableText?: string;
+      value: string;
+      fileName?: string;
+      fileMimeType?: string;
+      fileSize?: number | null;
+      fileData?: string;
+    }>;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+  customerName: string;
+  customerEmail: string;
+};
+
+export type ServiceFormSubField = {
+  fieldKey?: string;
+  question: string;
+  fieldType: "text" | "number" | "date" | "dropdown";
+  dropdownOptions?: string[];
+  required: boolean;
+};
+
+export type ServiceFormField = {
+  fieldKey?: string;
+  question: string;
+  iconKey?: string;
+  fieldType:
+    | "text"
+    | "long_text"
+    | "number"
+    | "file"
+    | "date"
+    | "dropdown"
+    | "composite";
+  subFields?: ServiceFormSubField[];
+  dropdownOptions?: string[];
+  required: boolean;
+  repeatable?: boolean;
+  minLength?: number | null;
+  maxLength?: number | null;
+  forceUppercase?: boolean;
+  allowNotApplicable?: boolean;
+  notApplicableText?: string;
+};
+
+export type ServiceItem = {
+  id: string;
+  name: string;
+  description: string;
+  defaultPrice: number | null;
+  defaultCurrency: SupportedCurrency;
+  isPackage: boolean;
+  allowMultipleEntries?: boolean;
+  multipleEntriesLabel?: string;
+  hiddenFromCustomerPortal?: boolean;
+  isDefaultPersonalDetails?: boolean;
+  includedServiceIds: string[];
+  formFields: ServiceFormField[];
+};
+
+export type CompanyServiceSelection = {
+  serviceId: string;
+  serviceName: string;
+  price: number;
+  currency: SupportedCurrency;
+  yearsOfChecking?: string;
+};
+
+export type CompanyProfileAddress = {
+  line1: string;
+  line2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+};
+
+export type CompanyProfilePhone = {
+  countryCode: string;
+  number: string;
+};
+
+export type CompanyProfileDocument = {
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+};
+
+export type CompanyPartnerProfile = {
+  companyInformation: {
+    companyName: string;
+    gstin: string;
+    cinRegistrationNumber: string;
+    sacCode?: string;
+    ltuCode?: string;
+    address: CompanyProfileAddress;
+    documents: CompanyProfileDocument[];
+  };
+  invoicingInformation: {
+    billingSameAsCompany: boolean;
+    invoiceEmail: string;
+    address: CompanyProfileAddress;
+    gstEnabled?: boolean;
+    gstRate?: number;
+    paymentMethods?: {
+      upiId?: string;
+      upiQrCodeImageUrl?: string;
+      wireTransfer?: {
+        accountHolderName?: string;
+        accountNumber?: string;
+        bankName?: string;
+        ifscCode?: string;
+        branchName?: string;
+        swiftCode?: string;
+        instructions?: string;
+      };
+    };
+  };
+  primaryContactInformation: {
+    firstName: string;
+    lastName: string;
+    designation: string;
+    email: string;
+    officePhone: CompanyProfilePhone;
+    mobilePhone: CompanyProfilePhone;
+    whatsappPhone: CompanyProfilePhone;
+  };
+  additionalQuestions: {
+    heardAboutUs: string;
+    referredBy: string;
+    yearlyBackgroundsExpected: string;
+    promoCode: string;
+    primaryIndustry: string;
+  };
+  updatedAt: string | null;
+};
+
+export type ClusoDetailsResponse = {
+  profile: CompanyPartnerProfile;
+};
+
+export type InvoicePartyDetails = {
+  companyName: string;
+  loginEmail: string;
+  gstin: string;
+  cinRegistrationNumber: string;
+  sacCode: string;
+  ltuCode: string;
+  address: string;
+  invoiceEmail: string;
+  billingSameAsCompany: boolean;
+  billingAddress: string;
+};
+
+export type InvoicePaymentDetails = {
+  upi: {
+    upiId: string;
+    qrCodeImageUrl: string;
+  };
+  wireTransfer: {
+    accountHolderName: string;
+    accountNumber: string;
+    bankName: string;
+    ifscCode: string;
+    branchName: string;
+    swiftCode: string;
+    instructions: string;
+  };
+};
+
+export type InvoicePaymentMethod = "upi" | "wireTransfer" | "adminUpload";
+
+export type InvoicePaymentStatus = "unpaid" | "submitted" | "paid";
+
+export type InvoicePaymentProof = {
+  method: InvoicePaymentMethod;
+  screenshotData: string;
+  screenshotFileName: string;
+  screenshotMimeType: string;
+  screenshotFileSize: number;
+  uploadedAt: string;
+};
+
+export type InvoiceLineItem = {
+  serviceId: string;
+  serviceName: string;
+  usageCount: number;
+  price: number;
+  lineTotal: number;
+  currency: SupportedCurrency;
+};
+
+export type InvoiceCurrencyTotal = {
+  currency: SupportedCurrency;
+  subtotal: number;
+};
+
+export type InvoiceRecord = {
+  id: string;
+  invoiceNumber: string;
+  billingMonth: string;
+  gstEnabled: boolean;
+  gstRate: number;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  enterpriseDetails: InvoicePartyDetails;
+  clusoDetails: InvoicePartyDetails;
+  paymentDetails: InvoicePaymentDetails;
+  paymentStatus: InvoicePaymentStatus;
+  paymentProof: InvoicePaymentProof | null;
+  paidAt: string;
+  lineItems: InvoiceLineItem[];
+  totalsByCurrency: InvoiceCurrencyTotal[];
+  generatedByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InvoiceWorkspaceResponse = {
+  invoices: InvoiceRecord[];
+  clusoDefaultDetails: InvoicePartyDetails;
+  clusoDefaultPaymentDetails: InvoicePaymentDetails;
+};
+
+export type CompanyItem = {
+  id: string;
+  name: string;
+  email: string;
+  companyAccessStatus: "active" | "inactive";
+  selectedServices: CompanyServiceSelection[];
+  partnerProfile: CompanyPartnerProfile;
+  stats?: {
+    totalRequests: number;
+    assignedVerifiers: string[];
+    lastRequestDate: string | null;
+    lastRequestStatus: string | null;
+  };
 };

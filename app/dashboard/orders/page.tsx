@@ -1038,6 +1038,7 @@ function OrdersPageContent() {
                                           : field.fieldType === "date"
                                             ? "date"
                                             : "text";
+                                      const isDropdownField = field.fieldType === "dropdown";
 
                                       return (
                                         <div
@@ -1072,24 +1073,49 @@ function OrdersPageContent() {
                                           <div style={{ display: "grid", gap: "0.3rem" }}>
                                             {questionRepeatableHint}
                                             {entryNotApplicableToggle}
-                                            <input
-                                              className="input"
-                                              type={inputType}
-                                              value={entryValue}
-                                              onChange={(e) =>
-                                                setServiceLevelEntryFieldValue(
-                                                  item,
-                                                  serviceForm,
-                                                  field,
-                                                  serviceEntryIndex,
-                                                  e.target.value,
-                                                )
-                                              }
-                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
-                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
-                                              required={field.required && !isEntryNotApplicable}
-                                              disabled={isEntryNotApplicable}
-                                            />
+                                            {isDropdownField ? (
+                                              <select
+                                                className="input"
+                                                value={entryValue}
+                                                onChange={(e) =>
+                                                  setServiceLevelEntryFieldValue(
+                                                    item,
+                                                    serviceForm,
+                                                    field,
+                                                    serviceEntryIndex,
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                required={field.required && !isEntryNotApplicable}
+                                                disabled={isEntryNotApplicable}
+                                              >
+                                                <option value="">Select an option</option>
+                                                {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                                  <option key={`${fieldStorageKey}-${serviceEntryIndex}-${optionIndex}`} value={option}>
+                                                    {option}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            ) : (
+                                              <input
+                                                className="input"
+                                                type={inputType}
+                                                value={entryValue}
+                                                onChange={(e) =>
+                                                  setServiceLevelEntryFieldValue(
+                                                    item,
+                                                    serviceForm,
+                                                    field,
+                                                    serviceEntryIndex,
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                                maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                                required={field.required && !isEntryNotApplicable}
+                                                disabled={isEntryNotApplicable}
+                                              />
+                                            )}
                                             {isEntryNotApplicable ? (
                                               <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
                                                 Saved as: {resolvedNotApplicableText}
@@ -1372,6 +1398,7 @@ function OrdersPageContent() {
                                   : field.fieldType === "date"
                                     ? "date"
                                     : "text";
+                              const isDropdownField = field.fieldType === "dropdown";
 
                               if (supportsRepeatable(field, serviceAllowsMultipleEntries)) {
                                 const repeatableValues = parseRepeatableAnswerValues(answer.value);
@@ -1428,23 +1455,47 @@ function OrdersPageContent() {
                                               alignItems: "center",
                                             }}
                                           >
-                                            <input
-                                              className="input"
-                                              type={inputType}
-                                              value={entryValue}
-                                              onChange={(e) => {
-                                                const nextValues = parseRepeatableAnswerValues(answer.value);
-                                                nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
-                                                onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
-                                                  ...answer,
-                                                  value: serializeRepeatableAnswerValues(nextValues),
-                                                });
-                                              }}
-                                              minLength={typeof field.minLength === "number" ? field.minLength : undefined}
-                                              maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
-                                              required={field.required && !isNotApplicable}
-                                              disabled={isNotApplicable}
-                                            />
+                                            {isDropdownField ? (
+                                              <select
+                                                className="input"
+                                                value={entryValue}
+                                                onChange={(e) => {
+                                                  const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                  nextValues[entryIndex] = e.target.value;
+                                                  onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                                    ...answer,
+                                                    value: serializeRepeatableAnswerValues(nextValues),
+                                                  });
+                                                }}
+                                                required={field.required && !isNotApplicable}
+                                                disabled={isNotApplicable}
+                                              >
+                                                <option value="">Select an option</option>
+                                                {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                                  <option key={`${fieldStorageKey}-${entryIndex}-${optionIndex}`} value={option}>
+                                                    {option}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            ) : (
+                                              <input
+                                                className="input"
+                                                type={inputType}
+                                                value={entryValue}
+                                                onChange={(e) => {
+                                                  const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                  nextValues[entryIndex] = normalizeAnswerValue(field, e.target.value);
+                                                  onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                                    ...answer,
+                                                    value: serializeRepeatableAnswerValues(nextValues),
+                                                  });
+                                                }}
+                                                minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                                maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                                required={field.required && !isNotApplicable}
+                                                disabled={isNotApplicable}
+                                              />
+                                            )}
                                             <button
                                               className="btn btn-secondary"
                                               type="button"
@@ -1541,21 +1592,43 @@ function OrdersPageContent() {
                                   </label>
                                   <div style={{ display: "grid", gap: "0.3rem" }}>
                                     {notApplicableToggle}
-                                    <input
-                                      className="input"
-                                      type={inputType}
-                                      value={answer.value}
-                                      onChange={(e) =>
-                                        onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
-                                          ...answer,
-                                          value: normalizeAnswerValue(field, e.target.value),
-                                        })
-                                      }
-                                      minLength={typeof field.minLength === "number" ? field.minLength : undefined}
-                                      maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
-                                      required={field.required && !isNotApplicable}
-                                      disabled={isNotApplicable}
-                                    />
+                                    {isDropdownField ? (
+                                      <select
+                                        className="input"
+                                        value={answer.value}
+                                        onChange={(e) =>
+                                          onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                            ...answer,
+                                            value: e.target.value,
+                                          })
+                                        }
+                                        required={field.required && !isNotApplicable}
+                                        disabled={isNotApplicable}
+                                      >
+                                        <option value="">Select an option</option>
+                                        {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                          <option key={`${fieldStorageKey}-${optionIndex}`} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <input
+                                        className="input"
+                                        type={inputType}
+                                        value={answer.value}
+                                        onChange={(e) =>
+                                          onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                            ...answer,
+                                            value: normalizeAnswerValue(field, e.target.value),
+                                          })
+                                        }
+                                        minLength={typeof field.minLength === "number" ? field.minLength : undefined}
+                                        maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
+                                        required={field.required && !isNotApplicable}
+                                        disabled={isNotApplicable}
+                                      />
+                                    )}
                                     {isNotApplicable ? (
                                       <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
                                         Saved as: {resolvedNotApplicableText}

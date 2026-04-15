@@ -61,9 +61,23 @@ const VerificationRequestSchema = new Schema(
         question: { type: String, required: true },
         fieldType: {
           type: String,
-          enum: ["text", "long_text", "number", "file", "date"],
+          enum: ["text", "long_text", "number", "file", "date", "dropdown", "composite"],
           required: true,
         },
+        subFields: [
+          {
+            fieldKey: { type: String, default: "" },
+            question: { type: String, required: true },
+            fieldType: {
+              type: String,
+              enum: ["text", "number", "date", "dropdown"],
+              required: true,
+            },
+            value: { type: String, default: "" },
+            required: { type: Boolean, default: false },
+            dropdownOptions: { type: [String], default: [] },
+          },
+        ],
       },
     ],
     candidateFormResponses: [
@@ -81,9 +95,23 @@ const VerificationRequestSchema = new Schema(
             question: { type: String, required: true },
             fieldType: {
               type: String,
-              enum: ["text", "long_text", "number", "file", "date"],
+              enum: ["text", "long_text", "number", "file", "date", "dropdown", "composite"],
               required: true,
             },
+            subFields: [
+              {
+                fieldKey: { type: String, default: "" },
+                question: { type: String, required: true },
+                fieldType: {
+                  type: String,
+                  enum: ["text", "number", "date", "dropdown"],
+                  required: true,
+                },
+                value: { type: String, default: "" },
+                required: { type: Boolean, default: false },
+                dropdownOptions: { type: [String], default: [] },
+              },
+            ],
             required: { type: Boolean, default: false },
             repeatable: { type: Boolean, default: false },
             notApplicable: { type: Boolean, default: false },
@@ -134,6 +162,11 @@ const VerificationRequestSchema = new Schema(
             },
             verificationMode: { type: String, default: "" },
             comment: { type: String, default: "" },
+            verifierNote: { type: String, default: "" },
+            screenshotFileName: { type: String, default: "" },
+            screenshotMimeType: { type: String, default: "" },
+            screenshotFileSize: { type: Number, default: null },
+            screenshotData: { type: String, default: "" },
             attemptedAt: { type: Date, required: true },
             verifierId: {
               type: Schema.Types.ObjectId,
@@ -160,9 +193,88 @@ const VerificationRequestSchema = new Schema(
       },
       generatedByName: { type: String, default: "" },
       reportNumber: { type: String, default: "" },
+      customerSharedAt: { type: Date, default: null },
     },
     reportData: {
       type: Schema.Types.Mixed,
+      default: null,
+    },
+    reverificationAppeal: {
+      type: {
+        status: {
+          type: String,
+          enum: ["open", "resolved"],
+          required: true,
+        },
+        submittedAt: {
+          type: Date,
+          required: true,
+        },
+        submittedBy: {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+        submittedByName: {
+          type: String,
+          default: "",
+        },
+        services: [
+          {
+            serviceId: {
+              type: Schema.Types.ObjectId,
+              ref: "Service",
+              required: true,
+            },
+            serviceName: {
+              type: String,
+              required: true,
+            },
+          },
+        ],
+        serviceId: {
+          type: Schema.Types.ObjectId,
+          ref: "Service",
+          required: true,
+        },
+        serviceName: {
+          type: String,
+          required: true,
+        },
+        comment: {
+          type: String,
+          default: "",
+        },
+        attachmentFileName: {
+          type: String,
+          default: "",
+        },
+        attachmentMimeType: {
+          type: String,
+          default: "",
+        },
+        attachmentFileSize: {
+          type: Number,
+          default: null,
+        },
+        attachmentData: {
+          type: String,
+          default: "",
+        },
+        resolvedAt: {
+          type: Date,
+          default: null,
+        },
+        resolvedBy: {
+          type: Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+        resolvedByName: {
+          type: String,
+          default: "",
+        },
+      },
       default: null,
     },
     invoiceSnapshot: {
@@ -197,13 +309,18 @@ if (
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.notApplicableText") ||
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.required") ||
     !models.VerificationRequest.schema.path("candidateFormResponses.answers.repeatable") ||
-    !models.VerificationRequest.schema.path("selectedServices.yearsOfChecking") ||
     !models.VerificationRequest.schema.path("enterpriseApprovedAt") ||
     !models.VerificationRequest.schema.path("enterpriseDecisionLockedAt") ||
     !models.VerificationRequest.schema.path("serviceVerifications") ||
+    !models.VerificationRequest.schema.path("serviceVerifications.attempts.screenshotData") ||
+    !models.VerificationRequest.schema.path("serviceVerifications.attempts.verifierNote") ||
     !models.VerificationRequest.schema.path("serviceVerifications.attempts.attemptedAt") ||
     !models.VerificationRequest.schema.path("reportMetadata") ||
+    !models.VerificationRequest.schema.path("reportMetadata.customerSharedAt") ||
     !models.VerificationRequest.schema.path("reportData") ||
+    !models.VerificationRequest.schema.path("reverificationAppeal") ||
+    !models.VerificationRequest.schema.path("reverificationAppeal.status") ||
+    !models.VerificationRequest.schema.path("reverificationAppeal.services") ||
     !models.VerificationRequest.schema.path("invoiceSnapshot"))
 ) {
   delete models.VerificationRequest;
