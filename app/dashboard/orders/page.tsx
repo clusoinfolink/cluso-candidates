@@ -40,6 +40,11 @@ type DraftAnswer = {
 
 type RequestServiceForm = RequestItem["serviceForms"][number];
 
+type PersonalDetailsSourceField = {
+  question: string;
+  value: string;
+};
+
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
@@ -260,6 +265,27 @@ function parseRepeatableAnswerValues(rawValue: string) {
   return [rawValue];
 }
 
+const KNOWN_PERSONAL_DETAILS_FIELD_KEYS = new Set([
+  "personal_full_name",
+  "personal_date_of_birth",
+  "personal_mobile_number",
+  "personal_email_address",
+  "personal_nationality",
+  "personal_residential_address",
+  "personal_gender",
+  "personal_primary_id_number",
+]);
+
+function isPersonalDetailsServiceForm(serviceForm: RequestServiceForm) {
+  if (serviceForm.serviceName.trim().toLowerCase() === "personal details") {
+    return true;
+  }
+
+  return serviceForm.fields.some((field) =>
+    KNOWN_PERSONAL_DETAILS_FIELD_KEYS.has(field.fieldKey?.trim() || ""),
+  );
+}
+
 function serializeRepeatableAnswerValues(values: string[]) {
   return JSON.stringify(values);
 }
@@ -283,6 +309,7 @@ function OrdersPageContent() {
   const { items, loading: requestsLoading, refreshRequests } = useRequestsData();
   const [requestsReady, setRequestsReady] = useState(false);
   const [formDrafts, setFormDrafts] = useState<Record<string, Record<string, Record<string, DraftAnswer>>>>({});
+  const [personalDetailsCopyToggles, setPersonalDetailsCopyToggles] = useState<Record<string, boolean>>({});
   const [submittingRequestId, setSubmittingRequestId] = useState("");
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -395,6 +422,201 @@ function OrdersPageContent() {
         },
       },
     }));
+  }
+
+  const personalDetailsSourcesByRequestId = useMemo(() => {
+    const result = new Map<string, Map<string, PersonalDetailsSourceField>>();
+
+    for (const item of pendingItems) {
+      const personalDetailsForm = item.serviceForms.find((serviceForm) =>
+        isPersonalDetailsServiceForm(serviceForm),
+      );
+
+      if (!personalDetailsForm) {
+        continue;
+      }
+
+      const fieldMap = new Map<string, PersonalDetailsSourceField>();
+
+      for (const field of personalDetailsForm.fields) {
+        if (field.fieldType === "file" || field.fieldType === "composite") {
+          continue;
+        }
+
+        const sourceFieldKey = field.fieldKey?.trim() || "";
+        if (!sourceFieldKey) {
+          continue;
+        }
+
+        const answer = getDraftAnswer(item, personalDetailsForm.serviceId, field);
+        const resolvedNotApplicableText =
+          field.notApplicableText?.trim() ||
+          answer.notApplicableText?.trim() ||
+          "Not Applicable";
+        const resolvedValue =
+          Boolean(field.allowNotApplicable) && Boolean(answer.notApplicable)
+            ? resolvedNotApplicableText
+            : supportsRepeatable(field, Boolean(personalDetailsForm.allowMultipleEntries))
+              ? parseRepeatableAnswerValues(answer.value)
+                  .map((entry) => normalizeAnswerValue(field, entry).trim())
+                  .find(Boolean) || ""
+              : normalizeAnswerValue(field, answer.value).trim();
+
+        fieldMap.set(sourceFieldKey, {
+          question: field.question,
+          value: resolvedValue,
+        });
+      }
+
+      if (fieldMap.size > 0) {
+        result.set(item._id, fieldMap);
+      }
+    }
+
+    return result;
+  }, [pendingItems, formDrafts]);
+
+  function buildPersonalDetailsCopyToggleKey(
+    requestId: string,
+    serviceId: string,
+    fieldStorageKey: string,
+    entryIndex?: number,
+  ) {
+    return `${requestId}::${serviceId}::${fieldStorageKey}::${
+      typeof entryIndex === "number" ? entryIndex : "single"
+    }`;
+  }
+
+  function resolvePersonalDetailsCopyValue(field: ServiceFormField, sourceValue: string) {
+    const normalizedSourceValue = sourceValue.trim();
+    if (!normalizedSourceValue) {
+      return null;
+    }
+
+    if (field.fieldType === "dropdown") {
+      const matchingOption = (field.dropdownOptions ?? []).find(
+        (option) => option.trim().toLowerCase() === normalizedSourceValue.toLowerCase(),
+      );
+      return matchingOption ?? null;
+    }
+
+    return normalizeAnswerValue(field, normalizedSourceValue);
+  }
+
+  function applyPersonalDetailsCopyToField(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    fieldStorageKey: string,
+    answer: DraftAnswer,
+    copiedValue: string,
+    entryIndex?: number,
+  ) {
+    if (typeof entryIndex === "number") {
+      const nextValues = parseRepeatableAnswerValues(answer.value);
+      while (nextValues.length <= entryIndex) {
+        nextValues.push("");
+      }
+
+      nextValues[entryIndex] = copiedValue;
+
+      onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+        ...answer,
+        notApplicable: false,
+        value: serializeRepeatableAnswerValues(nextValues),
+      });
+      return;
+    }
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: copiedValue,
+    });
+  }
+
+  function renderPersonalDetailsCopyCheckbox(params: {
+    item: RequestItem;
+    serviceForm: RequestServiceForm;
+    field: ServiceFormField;
+    fieldStorageKey: string;
+    answer: DraftAnswer;
+    entryIndex?: number;
+  }) {
+    const { item, serviceForm, field, fieldStorageKey, answer, entryIndex } = params;
+    const sourceFieldKey = field.copyFromPersonalDetailsFieldKey?.trim() || "";
+
+    if (!sourceFieldKey || field.fieldType === "file" || field.fieldType === "composite") {
+      return null;
+    }
+
+    const sourceField = personalDetailsSourcesByRequestId
+      .get(item._id)
+      ?.get(sourceFieldKey);
+    const copyToggleKey = buildPersonalDetailsCopyToggleKey(
+      item._id,
+      serviceForm.serviceId,
+      fieldStorageKey,
+      entryIndex,
+    );
+    const checked = Boolean(personalDetailsCopyToggles[copyToggleKey]);
+    const copyValue = sourceField
+      ? resolvePersonalDetailsCopyValue(field, sourceField.value)
+      : null;
+    const canCopy = Boolean(copyValue && copyValue.trim());
+
+    let helperText = "";
+    if (!sourceField) {
+      helperText = "Source field is not available in Personal Details.";
+    } else if (!sourceField.value.trim()) {
+      helperText = `Fill \"${sourceField.question}\" in Personal Details to use this copy option.`;
+    } else if (!canCopy) {
+      helperText = "Source value cannot be copied because it does not match this field format.";
+    }
+
+    return (
+      <div style={{ display: "grid", gap: "0.25rem" }}>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            color: "#334155",
+            fontSize: "0.8rem",
+            fontWeight: 600,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!canCopy}
+            onChange={(e) => {
+              const nextChecked = e.target.checked;
+              setPersonalDetailsCopyToggles((prev) => ({
+                ...prev,
+                [copyToggleKey]: nextChecked,
+              }));
+
+              if (nextChecked && copyValue) {
+                applyPersonalDetailsCopyToField(
+                  item,
+                  serviceForm,
+                  field,
+                  fieldStorageKey,
+                  answer,
+                  copyValue,
+                  entryIndex,
+                );
+              }
+            }}
+          />
+          Use value from Personal Details: {sourceField?.question || sourceFieldKey}
+        </label>
+        {helperText ? (
+          <p style={{ margin: 0, color: "#64748B", fontSize: "0.78rem" }}>{helperText}</p>
+        ) : null}
+      </div>
+    );
   }
 
   function getServiceLevelEntryCount(item: RequestItem, serviceForm: RequestServiceForm) {
@@ -981,6 +1203,14 @@ function OrdersPageContent() {
                                           {resolvedNotApplicableText}
                                         </label>
                                       ) : null;
+                                      const personalDetailsCopyToggle = renderPersonalDetailsCopyCheckbox({
+                                        item,
+                                        serviceForm,
+                                        field,
+                                        fieldStorageKey,
+                                        answer,
+                                        entryIndex: serviceEntryIndex,
+                                      });
                                       const questionRepeatableHint = Boolean(field.repeatable) ? (
                                         <p style={{ margin: 0, color: "#15803D", fontSize: "0.8rem", fontWeight: 600 }}>
                                           Specific-question multiple entries is enabled in Service Builder.
@@ -999,6 +1229,7 @@ function OrdersPageContent() {
                                             </label>
                                             {questionRepeatableHint}
                                             {entryNotApplicableToggle}
+                                            {personalDetailsCopyToggle}
                                             <textarea
                                               className="input"
                                               rows={5}
@@ -1073,6 +1304,7 @@ function OrdersPageContent() {
                                           <div style={{ display: "grid", gap: "0.3rem" }}>
                                             {questionRepeatableHint}
                                             {entryNotApplicableToggle}
+                                            {personalDetailsCopyToggle}
                                             {isDropdownField ? (
                                               <select
                                                 className="input"
@@ -1201,6 +1433,13 @@ function OrdersPageContent() {
                                   {resolvedNotApplicableText}
                                 </label>
                                 ) : null;
+                              const personalDetailsCopyToggle = renderPersonalDetailsCopyCheckbox({
+                                item,
+                                serviceForm,
+                                field,
+                                fieldStorageKey,
+                                answer,
+                              });
 
                               if (field.fieldType === "long_text") {
                                 if (supportsRepeatable(field, serviceAllowsMultipleEntries)) {
@@ -1247,6 +1486,14 @@ function OrdersPageContent() {
                                               required={field.required && !isNotApplicable}
                                               disabled={isNotApplicable}
                                             />
+                                            {renderPersonalDetailsCopyCheckbox({
+                                              item,
+                                              serviceForm,
+                                              field,
+                                              fieldStorageKey,
+                                              answer,
+                                              entryIndex,
+                                            })}
                                             <div style={{ display: "flex", justifyContent: "flex-end" }}>
                                               <button
                                                 className="btn btn-secondary"
@@ -1316,6 +1563,7 @@ function OrdersPageContent() {
                                       />
                                     </label>
                                     {notApplicableToggle}
+                                    {personalDetailsCopyToggle}
                                     <textarea
                                       className="input"
                                       rows={5}
@@ -1518,6 +1766,14 @@ function OrdersPageContent() {
                                               Remove
                                             </button>
                                           </div>
+                                          {renderPersonalDetailsCopyCheckbox({
+                                            item,
+                                            serviceForm,
+                                            field,
+                                            fieldStorageKey,
+                                            answer,
+                                            entryIndex,
+                                          })}
                                           {field.fieldType === "date" ? (
                                             <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
                                               Pick a date from the calendar.
@@ -1592,6 +1848,7 @@ function OrdersPageContent() {
                                   </label>
                                   <div style={{ display: "grid", gap: "0.3rem" }}>
                                     {notApplicableToggle}
+                                    {personalDetailsCopyToggle}
                                     {isDropdownField ? (
                                       <select
                                         className="input"

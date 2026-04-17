@@ -96,6 +96,7 @@ export type RequestItem = {
   candidateName: string;
   candidateEmail: string;
   candidatePhone: string;
+  verificationCountry?: string;
   verifierNames?: string[];
   createdByName?: string;
   status: RequestStatus;
@@ -200,6 +201,7 @@ export type ServiceFormField = {
   forceUppercase?: boolean;
   allowNotApplicable?: boolean;
   notApplicableText?: string;
+  copyFromPersonalDetailsFieldKey?: string;
 };
 
 export type ServiceItem = {
@@ -217,11 +219,18 @@ export type ServiceItem = {
   formFields: ServiceFormField[];
 };
 
+export type CountrySpecificRate = {
+  country: string;
+  price: number;
+  currency: SupportedCurrency;
+};
+
 export type CompanyServiceSelection = {
   serviceId: string;
   serviceName: string;
   price: number;
   currency: SupportedCurrency;
+  countryRates?: CountrySpecificRate[];
   yearsOfChecking?: string;
 };
 

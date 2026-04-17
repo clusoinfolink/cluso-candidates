@@ -31,6 +31,13 @@ const UserSchema = new Schema(
         serviceName: { type: String, required: true },
         price: { type: Number, required: true },
         currency: { type: String, enum: SUPPORTED_CURRENCIES, default: "INR" },
+        countryRates: [
+          {
+            country: { type: String, required: true, trim: true },
+            price: { type: Number, required: true, min: 0 },
+            currency: { type: String, enum: SUPPORTED_CURRENCIES, required: true },
+          },
+        ],
       },
     ],
   },
@@ -45,13 +52,15 @@ const hasDelegateUserRole =
 const hasCandidateRole =
   Array.isArray(existingUserRoleValues) && existingUserRoleValues.includes("candidate");
 const hasCreatedByDelegatePath = Boolean(models.User?.schema.path("createdByDelegate"));
+const hasCountryRatesPath = Boolean(models.User?.schema.path("selectedServices.countryRates"));
 
 if (
   models.User &&
   (!models.User.schema.path("selectedServices") ||
     !hasDelegateUserRole ||
     !hasCandidateRole ||
-    !hasCreatedByDelegatePath)
+    !hasCreatedByDelegatePath ||
+    !hasCountryRatesPath)
 ) {
   delete models.User;
 }

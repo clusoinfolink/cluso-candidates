@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCandidateAuthFromRequest } from "@/lib/auth";
+import { SUPPORTED_CURRENCIES, type SupportedCurrency } from "@/lib/currencies";
 import { connectMongo } from "@/lib/mongodb";
 import Service from "@/lib/models/Service";
 import User from "@/lib/models/User";
@@ -13,6 +14,185 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
 ]);
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_QUESTION_ICON_KEY = "diary";
+const SERVICE_COUNTRY_FIELD_KEY = "system_service_country";
+const SERVICE_COUNTRY_FIELD_QUESTION =
+  "Select verification country for this service";
+const DEFAULT_SERVICE_COUNTRY_OPTIONS = [
+  "Afghanistan",
+  "Armenia",
+  "Australia",
+  "Azerbaijan",
+  "Bangladesh",
+  "Bhutan",
+  "Brunei",
+  "Cambodia",
+  "China",
+  "Fiji",
+  "Georgia",
+  "Hong Kong",
+  "India",
+  "Indonesia",
+  "Japan",
+  "Kazakhstan",
+  "Kiribati",
+  "Kyrgyzstan",
+  "Laos",
+  "Macau",
+  "Malaysia",
+  "Maldives",
+  "Marshall Islands",
+  "Micronesia",
+  "Mongolia",
+  "Myanmar",
+  "Nauru",
+  "Nepal",
+  "New Zealand",
+  "Pakistan",
+  "Palau",
+  "Papua New Guinea",
+  "Philippines",
+  "Samoa",
+  "Singapore",
+  "Solomon Islands",
+  "South Korea",
+  "Sri Lanka",
+  "Taiwan",
+  "Tajikistan",
+  "Thailand",
+  "Timor-Leste",
+  "Tonga",
+  "Turkmenistan",
+  "Tuvalu",
+  "Uzbekistan",
+  "Vanuatu",
+  "Vietnam",
+  "United Arab Emirates",
+  "United States",
+  "United Kingdom",
+];
+const DEFAULT_PERSONAL_DETAILS_SERVICE_NAME = "Personal details";
+const DEFAULT_PERSONAL_DETAILS_FORM_FIELDS = [
+  {
+    fieldKey: "personal_full_name",
+    question: "Full name (as per government ID)",
+    iconKey: "pen",
+    fieldType: "text",
+    required: true,
+    repeatable: false,
+    minLength: 2,
+    maxLength: 120,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_date_of_birth",
+    question: "Date of birth",
+    iconKey: "calendar",
+    fieldType: "date",
+    required: true,
+    repeatable: false,
+    minLength: null,
+    maxLength: null,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_mobile_number",
+    question: "Mobile number",
+    iconKey: "phone",
+    fieldType: "text",
+    required: true,
+    repeatable: false,
+    minLength: 7,
+    maxLength: 20,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_email_address",
+    question: "Email address",
+    iconKey: "email",
+    fieldType: "text",
+    required: true,
+    repeatable: false,
+    minLength: 5,
+    maxLength: 160,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_nationality",
+    question: "Nationality",
+    iconKey: "global",
+    fieldType: "text",
+    required: true,
+    repeatable: false,
+    minLength: 2,
+    maxLength: 80,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_residential_address",
+    question: "Current residential address",
+    iconKey: "house",
+    fieldType: "long_text",
+    required: true,
+    repeatable: false,
+    minLength: 10,
+    maxLength: 400,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+  {
+    fieldKey: "personal_gender",
+    question: "Gender",
+    iconKey: "person",
+    fieldType: "dropdown",
+    required: true,
+    repeatable: false,
+    minLength: null,
+    maxLength: null,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: ["Male", "Female", "Non-binary", "Prefer not to say"],
+  },
+  {
+    fieldKey: "personal_primary_id_number",
+    question: "Primary government ID number",
+    iconKey: "id-card",
+    fieldType: "text",
+    required: true,
+    repeatable: false,
+    minLength: 4,
+    maxLength: 80,
+    forceUppercase: true,
+    allowNotApplicable: false,
+    notApplicableText: "",
+    subFields: [],
+    dropdownOptions: [],
+  },
+];
 const SUPPORTED_QUESTION_ICON_KEYS = new Set([
   "none",
   "diary",
@@ -83,7 +263,51 @@ type NormalizedServiceFormField = {
   forceUppercase: boolean;
   allowNotApplicable: boolean;
   notApplicableText: string;
+  copyFromPersonalDetailsFieldKey: string;
   dropdownOptions: string[];
+};
+
+type CompanyServiceRateSelection = {
+  price: number;
+  currency: SupportedCurrency;
+  countryRates: Array<{
+    country: string;
+    price: number;
+    currency: SupportedCurrency;
+  }>;
+};
+
+type CustomerPricingContext = {
+  companyCountry: string;
+  serviceRatesById: Map<string, CompanyServiceRateSelection>;
+};
+
+type RequestSelectedServiceSnapshot = {
+  serviceId: string;
+  serviceName: string;
+  price: number;
+  currency: SupportedCurrency;
+  yearsOfChecking: string;
+};
+
+type CandidateServiceResponseForPricing = {
+  serviceId: string;
+  serviceEntryCount: number;
+  answers: Array<{
+    fieldKey?: string;
+    question?: string;
+    value: string;
+    repeatable: boolean;
+    notApplicable: boolean;
+  }>;
+};
+
+type PersonalDetailsServiceTemplate = {
+  serviceId: string;
+  serviceName: string;
+  allowMultipleEntries: boolean;
+  multipleEntriesLabel?: string;
+  formFields: unknown;
 };
 
 function supportsLengthConstraints(fieldType: string) {
@@ -169,6 +393,451 @@ function normalizeServiceId(serviceId: unknown) {
   return String(serviceId);
 }
 
+function isHiddenService(service: {
+  hiddenFromCustomerPortal?: unknown;
+  isDefaultPersonalDetails?: unknown;
+}) {
+  return Boolean(service.hiddenFromCustomerPortal || service.isDefaultPersonalDetails);
+}
+
+function mergePersonalDetailsFormFields(existingFormFields: unknown) {
+  if (!Array.isArray(existingFormFields) || existingFormFields.length === 0) {
+    return DEFAULT_PERSONAL_DETAILS_FORM_FIELDS;
+  }
+
+  const existingFieldKeys = new Set(
+    existingFormFields
+      .filter(
+        (field): field is { fieldKey?: unknown } =>
+          Boolean(field) && typeof field === "object",
+      )
+      .map((field) => String(field.fieldKey ?? "").trim())
+      .filter(Boolean),
+  );
+
+  const missingDefaultFields = DEFAULT_PERSONAL_DETAILS_FORM_FIELDS.filter(
+    (field) => !existingFieldKeys.has(field.fieldKey),
+  );
+
+  if (missingDefaultFields.length === 0) {
+    return existingFormFields;
+  }
+
+  return [...existingFormFields, ...missingDefaultFields];
+}
+
+function toPersonalDetailsServiceTemplate(service: {
+  _id: unknown;
+  name?: unknown;
+  allowMultipleEntries?: unknown;
+  multipleEntriesLabel?: unknown;
+  formFields?: unknown;
+}): PersonalDetailsServiceTemplate {
+  return {
+    serviceId: String(service._id),
+    serviceName:
+      typeof service.name === "string" && service.name.trim()
+        ? service.name.trim()
+        : DEFAULT_PERSONAL_DETAILS_SERVICE_NAME,
+    allowMultipleEntries: Boolean(service.allowMultipleEntries),
+    multipleEntriesLabel:
+      typeof service.multipleEntriesLabel === "string" && service.multipleEntriesLabel.trim()
+        ? service.multipleEntriesLabel.trim()
+        : undefined,
+    formFields: service.formFields ?? DEFAULT_PERSONAL_DETAILS_FORM_FIELDS,
+  };
+}
+
+async function ensureDefaultPersonalDetailsService(): Promise<PersonalDetailsServiceTemplate> {
+  const existingDefault = await Service.findOne({ isDefaultPersonalDetails: true })
+    .select(
+      "_id name allowMultipleEntries multipleEntriesLabel formFields hiddenFromCustomerPortal isPackage defaultPrice includedServiceIds",
+    )
+    .lean();
+
+  if (existingDefault) {
+    const mergedFormFields = mergePersonalDetailsFormFields(existingDefault.formFields);
+    const shouldSeedDefaultFields =
+      !Array.isArray(existingDefault.formFields) || existingDefault.formFields.length === 0;
+    const shouldBackfillDefaultFields =
+      Array.isArray(existingDefault.formFields) &&
+      mergedFormFields.length !== existingDefault.formFields.length;
+
+    if (
+      !isHiddenService(existingDefault) ||
+      Boolean(existingDefault.isPackage) ||
+      Number(existingDefault.defaultPrice ?? 0) !== 0 ||
+      (existingDefault.includedServiceIds ?? []).length > 0 ||
+      shouldSeedDefaultFields ||
+      shouldBackfillDefaultFields
+    ) {
+      await Service.findByIdAndUpdate(existingDefault._id, {
+        hiddenFromCustomerPortal: true,
+        isDefaultPersonalDetails: true,
+        isPackage: false,
+        includedServiceIds: [],
+        defaultPrice: 0,
+        ...(shouldSeedDefaultFields || shouldBackfillDefaultFields
+          ? {
+              formFields: mergedFormFields,
+            }
+          : {}),
+      });
+    }
+
+    return toPersonalDetailsServiceTemplate({
+      ...existingDefault,
+      formFields: mergedFormFields,
+    });
+  }
+
+  const existingByName = await Service.findOne({
+    name: { $regex: /^personal\s+details$/i },
+  })
+    .select("_id name allowMultipleEntries multipleEntriesLabel formFields")
+    .lean();
+
+  if (existingByName) {
+    const mergedFormFields = mergePersonalDetailsFormFields(existingByName.formFields);
+    const shouldSeedDefaultFields =
+      !Array.isArray(existingByName.formFields) || existingByName.formFields.length === 0;
+    const shouldBackfillDefaultFields =
+      Array.isArray(existingByName.formFields) &&
+      mergedFormFields.length !== existingByName.formFields.length;
+
+    await Service.findByIdAndUpdate(existingByName._id, {
+      hiddenFromCustomerPortal: true,
+      isDefaultPersonalDetails: true,
+      isPackage: false,
+      includedServiceIds: [],
+      defaultPrice: 0,
+      ...(shouldSeedDefaultFields || shouldBackfillDefaultFields
+        ? {
+            formFields: mergedFormFields,
+          }
+        : {}),
+    });
+
+    return toPersonalDetailsServiceTemplate({
+      ...existingByName,
+      formFields: mergedFormFields,
+    });
+  }
+
+  const createdService = await Service.create({
+    name: DEFAULT_PERSONAL_DETAILS_SERVICE_NAME,
+    description: "System service that captures candidate personal details.",
+    defaultPrice: 0,
+    defaultCurrency: "INR",
+    isPackage: false,
+    includedServiceIds: [],
+    hiddenFromCustomerPortal: true,
+    isDefaultPersonalDetails: true,
+    formFields: DEFAULT_PERSONAL_DETAILS_FORM_FIELDS,
+  });
+
+  return toPersonalDetailsServiceTemplate(createdService);
+}
+
+function normalizeCountryName(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function normalizeCurrency(value: unknown, fallback: SupportedCurrency = "INR") {
+  const candidate = String(value ?? "") as SupportedCurrency;
+  if (SUPPORTED_CURRENCIES.includes(candidate)) {
+    return candidate;
+  }
+
+  return fallback;
+}
+
+function normalizeCountryRates(
+  rawValue: unknown,
+  fallbackCurrency: SupportedCurrency,
+) {
+  if (!Array.isArray(rawValue)) {
+    return [] as CompanyServiceRateSelection["countryRates"];
+  }
+
+  const dedupedRates = new Map<string, CompanyServiceRateSelection["countryRates"][number]>();
+
+  for (const rawEntry of rawValue) {
+    if (!rawEntry || typeof rawEntry !== "object") {
+      continue;
+    }
+
+    const entry = rawEntry as Record<string, unknown>;
+    const country = normalizeCountryName(entry.country);
+    const price = Number(entry.price);
+    const currency = normalizeCurrency(entry.currency, fallbackCurrency);
+
+    if (!country || !Number.isFinite(price) || price < 0) {
+      continue;
+    }
+
+    dedupedRates.set(country.toLowerCase(), {
+      country,
+      price,
+      currency,
+    });
+  }
+
+  return [...dedupedRates.values()];
+}
+
+function buildCustomerPricingContext(customer: {
+  selectedServices?: Array<{
+    serviceId?: unknown;
+    price?: unknown;
+    currency?: unknown;
+    countryRates?: unknown;
+  }>;
+  partnerProfile?: unknown;
+} | null): CustomerPricingContext {
+  const partnerProfile = (customer?.partnerProfile ?? null) as {
+    companyInformation?: {
+      address?: {
+        country?: unknown;
+      };
+    };
+    invoicingInformation?: {
+      address?: {
+        country?: unknown;
+      };
+    };
+  } | null;
+
+  const companyCountry = normalizeCountryName(
+    partnerProfile?.companyInformation?.address?.country ||
+      partnerProfile?.invoicingInformation?.address?.country ||
+      "",
+  );
+
+  const serviceRatesById = new Map<string, CompanyServiceRateSelection>();
+  for (const selectedService of customer?.selectedServices ?? []) {
+    const serviceId = normalizeServiceId(selectedService.serviceId);
+    if (!serviceId) {
+      continue;
+    }
+
+    const currency = normalizeCurrency(selectedService.currency, "INR");
+    const price = Number(selectedService.price);
+
+    serviceRatesById.set(serviceId, {
+      price: Number.isFinite(price) && price >= 0 ? price : 0,
+      currency,
+      countryRates: normalizeCountryRates(selectedService.countryRates, currency),
+    });
+  }
+
+  return {
+    companyCountry,
+    serviceRatesById,
+  };
+}
+
+function resolveCountryRateForService(
+  serviceRate: CompanyServiceRateSelection,
+  selectedCountry: string,
+  companyCountry: string,
+) {
+  const normalizedSelectedCountry = normalizeCountryName(selectedCountry).toLowerCase();
+  const normalizedCompanyCountry = normalizeCountryName(companyCountry).toLowerCase();
+
+  if (normalizedSelectedCountry) {
+    const directMatch = serviceRate.countryRates.find(
+      (rate) => normalizeCountryName(rate.country).toLowerCase() === normalizedSelectedCountry,
+    );
+
+    if (directMatch) {
+      return {
+        price: directMatch.price,
+        currency: directMatch.currency,
+      };
+    }
+  }
+
+  if (normalizedCompanyCountry) {
+    const companyCountryMatch = serviceRate.countryRates.find(
+      (rate) => normalizeCountryName(rate.country).toLowerCase() === normalizedCompanyCountry,
+    );
+
+    if (companyCountryMatch) {
+      return {
+        price: companyCountryMatch.price,
+        currency: companyCountryMatch.currency,
+      };
+    }
+  }
+
+  return {
+    price: serviceRate.price,
+    currency: serviceRate.currency,
+  };
+}
+
+function resolveServiceCountryOptions(
+  serviceRate: CompanyServiceRateSelection | undefined,
+  requestVerificationCountry: unknown,
+  companyCountry: unknown,
+) {
+  const orderedCountries = new Map<string, string>();
+
+  for (const defaultCountry of DEFAULT_SERVICE_COUNTRY_OPTIONS) {
+    orderedCountries.set(defaultCountry.toLowerCase(), defaultCountry);
+  }
+
+  for (const countryRate of serviceRate?.countryRates ?? []) {
+    const normalizedCountry = normalizeCountryName(countryRate.country);
+    if (normalizedCountry) {
+      orderedCountries.set(normalizedCountry.toLowerCase(), normalizedCountry);
+    }
+  }
+
+  const requestCountry = normalizeCountryName(requestVerificationCountry);
+  if (requestCountry) {
+    orderedCountries.set(requestCountry.toLowerCase(), requestCountry);
+  }
+
+  const fallbackCompanyCountry = normalizeCountryName(companyCountry);
+  if (fallbackCompanyCountry) {
+    orderedCountries.set(fallbackCompanyCountry.toLowerCase(), fallbackCompanyCountry);
+  }
+
+  return [...orderedCountries.values()];
+}
+
+function createServiceCountrySystemField(
+  dropdownOptions: string[],
+): NormalizedServiceFormField {
+  return {
+    fieldKey: SERVICE_COUNTRY_FIELD_KEY,
+    question: SERVICE_COUNTRY_FIELD_QUESTION,
+    iconKey: "global",
+    fieldType: "dropdown",
+    required: true,
+    repeatable: false,
+    minLength: null,
+    maxLength: null,
+    forceUppercase: false,
+    allowNotApplicable: false,
+    notApplicableText: "Not Applicable",
+    copyFromPersonalDetailsFieldKey: "",
+    dropdownOptions: dropdownOptions.length > 0 ? dropdownOptions : [...DEFAULT_SERVICE_COUNTRY_OPTIONS],
+  };
+}
+
+function ensureServiceCountrySystemField(
+  fields: NormalizedServiceFormField[],
+  dropdownOptions: string[],
+  includeSystemField: boolean,
+) {
+  const withoutSystemField = fields.filter(
+    (field) => normalizeCountryName(field.fieldKey) !== SERVICE_COUNTRY_FIELD_KEY,
+  );
+
+  if (!includeSystemField) {
+    return withoutSystemField;
+  }
+
+  return [createServiceCountrySystemField(dropdownOptions), ...withoutSystemField];
+}
+
+function extractCountrySelectionsFromAnswers(
+  answers: CandidateServiceResponseForPricing["answers"],
+) {
+  const normalizedCountryQuestion = SERVICE_COUNTRY_FIELD_QUESTION.toLowerCase();
+
+  const countryAnswer = answers.find((answer) => {
+    const normalizedFieldKey = normalizeCountryName(answer.fieldKey);
+    if (normalizedFieldKey === SERVICE_COUNTRY_FIELD_KEY) {
+      return true;
+    }
+
+    return normalizeCountryName(answer.question).toLowerCase() === normalizedCountryQuestion;
+  });
+
+  if (!countryAnswer || countryAnswer.notApplicable) {
+    return [] as string[];
+  }
+
+  const rawSelections = countryAnswer.repeatable
+    ? parseRepeatableValues(countryAnswer.value)
+    : [countryAnswer.value];
+
+  return rawSelections.map((entry) => normalizeCountryName(entry)).filter(Boolean);
+}
+
+function repriceSelectedServicesByCountry(
+  selectedServices: RequestSelectedServiceSnapshot[],
+  candidateFormResponses: CandidateServiceResponseForPricing[],
+  customerPricingContext: CustomerPricingContext,
+  requestVerificationCountry: unknown,
+) {
+  const responsesByServiceId = new Map(
+    candidateFormResponses.map((response) => [normalizeServiceId(response.serviceId), response]),
+  );
+  const fallbackRequestCountry = normalizeCountryName(requestVerificationCountry);
+
+  return selectedServices.map((selectedService) => {
+    const configuredServiceRate = customerPricingContext.serviceRatesById.get(
+      selectedService.serviceId,
+    );
+    if (!configuredServiceRate) {
+      return selectedService;
+    }
+
+    const submittedResponse = responsesByServiceId.get(selectedService.serviceId);
+    const selectedCountries = submittedResponse
+      ? extractCountrySelectionsFromAnswers(submittedResponse.answers)
+      : [];
+    const entryCount = submittedResponse
+      ? normalizeServiceEntryCount(submittedResponse.serviceEntryCount)
+      : 1;
+
+    const resolvedRates = Array.from({ length: entryCount }, (_unused, index) => {
+      const selectedCountryForEntry =
+        selectedCountries[index] ||
+        selectedCountries[0] ||
+        fallbackRequestCountry ||
+        customerPricingContext.companyCountry;
+
+      return resolveCountryRateForService(
+        configuredServiceRate,
+        selectedCountryForEntry,
+        customerPricingContext.companyCountry,
+      );
+    });
+
+    const resolvedCurrencies = [...new Set(resolvedRates.map((rate) => rate.currency))];
+    if (resolvedCurrencies.length > 1) {
+      const fallbackRate = resolveCountryRateForService(
+        configuredServiceRate,
+        selectedCountries[0] || fallbackRequestCountry,
+        customerPricingContext.companyCountry,
+      );
+
+      return {
+        ...selectedService,
+        price: roundMoney(fallbackRate.price),
+        currency: fallbackRate.currency,
+      };
+    }
+
+    const totalPrice = resolvedRates.reduce((sum, rate) => sum + rate.price, 0);
+    return {
+      ...selectedService,
+      price: roundMoney(totalPrice / Math.max(1, entryCount)),
+      currency: resolvedCurrencies[0] ?? selectedService.currency,
+    };
+  });
+}
+
 function resolveFieldKey(rawFieldKey: unknown, question: string, index: number) {
   const normalizedFieldKey = String(rawFieldKey ?? "").trim();
   if (normalizedFieldKey) {
@@ -204,6 +873,10 @@ function normalizeDropdownOptions(rawOptions: unknown) {
   return [...new Set(rawOptions.map((option) => String(option ?? "").trim()).filter(Boolean))];
 }
 
+function normalizePersonalDetailsSourceFieldKey(rawFieldKey: unknown) {
+  return String(rawFieldKey ?? "").trim().slice(0, 120);
+}
+
 function normalizeSubFieldType(rawFieldType: unknown): "text" | "number" | "date" | "dropdown" {
   if (rawFieldType === "text" || rawFieldType === "number" || rawFieldType === "date" || rawFieldType === "dropdown") {
     return rawFieldType;
@@ -212,9 +885,13 @@ function normalizeSubFieldType(rawFieldType: unknown): "text" | "number" | "date
   return "text";
 }
 
-function expandServiceFormFields(rawFields: unknown): NormalizedServiceFormField[] {
+function expandServiceFormFields(
+  rawFields: unknown,
+  dropdownOptions: string[] = DEFAULT_SERVICE_COUNTRY_OPTIONS,
+  includeSystemField = true,
+): NormalizedServiceFormField[] {
   if (!Array.isArray(rawFields)) {
-    return [];
+    return ensureServiceCountrySystemField([], dropdownOptions, includeSystemField);
   }
 
   const expandedFields: NormalizedServiceFormField[] = [];
@@ -238,6 +915,7 @@ function expandServiceFormFields(rawFields: unknown): NormalizedServiceFormField
       forceUppercase?: unknown;
       allowNotApplicable?: unknown;
       notApplicableText?: unknown;
+      copyFromPersonalDetailsFieldKey?: unknown;
     };
 
     const baseQuestion = String(field.question ?? "").trim();
@@ -288,6 +966,7 @@ function expandServiceFormFields(rawFields: unknown): NormalizedServiceFormField
           forceUppercase: subFieldType === "text" ? forceUppercase : false,
           allowNotApplicable,
           notApplicableText,
+          copyFromPersonalDetailsFieldKey: "",
           dropdownOptions:
             subFieldType === "dropdown"
               ? normalizeDropdownOptions(subField.dropdownOptions)
@@ -320,12 +999,22 @@ function expandServiceFormFields(rawFields: unknown): NormalizedServiceFormField
         (fieldType === "text" || fieldType === "long_text") && forceUppercase,
       allowNotApplicable,
       notApplicableText,
+      copyFromPersonalDetailsFieldKey:
+        fieldType === "file"
+          ? ""
+          : normalizePersonalDetailsSourceFieldKey(
+              field.copyFromPersonalDetailsFieldKey,
+            ),
       dropdownOptions:
         fieldType === "dropdown" ? normalizeDropdownOptions(field.dropdownOptions) : [],
     });
   });
 
-  return expandedFields;
+  return ensureServiceCountrySystemField(
+    expandedFields,
+    dropdownOptions,
+    includeSystemField,
+  );
 }
 
 function candidateOwnershipFilter(candidateEmail: string, candidateUserId: string) {
@@ -359,14 +1048,26 @@ export async function GET(req: NextRequest) {
   )
     .sort({ createdAt: -1 })
     .lean();
+  const personalDetailsService = await ensureDefaultPersonalDetailsService();
 
   const customerIds = [...new Set(items.map((item) => String(item.customer)))];
   const customers =
     customerIds.length > 0
-      ? await User.find({ _id: { $in: customerIds } }).select("name email").lean()
+      ? await User.find({ _id: { $in: customerIds } })
+          .select("name email selectedServices partnerProfile")
+          .lean()
       : [];
   const customerMap = new Map(
     customers.map((customer) => [String(customer._id), customer]),
+  );
+  const customerPricingContextMap = new Map(
+    customers.map((customer) => [
+      String(customer._id),
+      buildCustomerPricingContext({
+        selectedServices: customer.selectedServices,
+        partnerProfile: (customer as { partnerProfile?: unknown }).partnerProfile,
+      }),
+    ]),
   );
 
   const selectedServiceIds = [
@@ -380,7 +1081,9 @@ export async function GET(req: NextRequest) {
   const services =
     selectedServiceIds.length > 0
       ? await Service.find({ _id: { $in: selectedServiceIds } })
-          .select("name allowMultipleEntries multipleEntriesLabel formFields")
+          .select(
+            "name allowMultipleEntries multipleEntriesLabel formFields isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
+          )
           .lean()
       : [];
 
@@ -390,14 +1093,29 @@ export async function GET(req: NextRequest) {
       {
         name: service.name,
         allowMultipleEntries: Boolean(service.allowMultipleEntries),
-          multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
-        formFields: expandServiceFormFields(service.formFields ?? []),
+        multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
+        hiddenFromCustomerPortal: isHiddenService(service),
+        includeSystemCountryField: !Boolean(
+          service.isPackage ||
+            service.hiddenFromCustomerPortal ||
+            service.isDefaultPersonalDetails,
+        ),
+        formFields: expandServiceFormFields(
+          service.formFields ?? [],
+          DEFAULT_SERVICE_COUNTRY_OPTIONS,
+          !Boolean(
+            service.isPackage ||
+              service.hiddenFromCustomerPortal ||
+              service.isDefaultPersonalDetails,
+          ),
+        ),
       },
     ]),
   );
 
   const enriched = items.map((item) => {
     const customer = customerMap.get(String(item.customer));
+    const customerPricingContext = customerPricingContextMap.get(String(item.customer));
     const selectedServices = (item.selectedServices ?? []).map((service) => ({
       serviceId: normalizeServiceId(service.serviceId),
       serviceName: service.serviceName,
@@ -405,7 +1123,54 @@ export async function GET(req: NextRequest) {
       currency: service.currency,
       yearsOfChecking:
         typeof service.yearsOfChecking === "string" ? service.yearsOfChecking : "default",
-    }));
+    })).filter(
+      (service) => !serviceMap.get(service.serviceId)?.hiddenFromCustomerPortal,
+    );
+
+    const selectedServiceForms = selectedServices.map((selectedService) => {
+      const serviceDefinition = serviceMap.get(selectedService.serviceId);
+      const serviceRate = customerPricingContext?.serviceRatesById.get(
+        selectedService.serviceId,
+      );
+      const countryOptions = resolveServiceCountryOptions(
+        serviceRate,
+        item.verificationCountry,
+        customerPricingContext?.companyCountry ?? "",
+      );
+
+      return {
+        serviceId: selectedService.serviceId,
+        serviceName: selectedService.serviceName,
+        allowMultipleEntries: Boolean(serviceDefinition?.allowMultipleEntries),
+        multipleEntriesLabel: serviceDefinition?.multipleEntriesLabel,
+        fields: ensureServiceCountrySystemField(
+          serviceDefinition?.formFields ?? [],
+          countryOptions,
+          Boolean(serviceDefinition?.includeSystemCountryField),
+        ),
+      };
+    });
+
+    const includesPersonalDetailsForm = selectedServiceForms.some(
+      (serviceForm) => serviceForm.serviceId === personalDetailsService.serviceId,
+    );
+
+    const serviceForms = includesPersonalDetailsForm
+      ? selectedServiceForms
+      : [
+          ...selectedServiceForms,
+          {
+            serviceId: personalDetailsService.serviceId,
+            serviceName: personalDetailsService.serviceName,
+            allowMultipleEntries: personalDetailsService.allowMultipleEntries,
+            multipleEntriesLabel: personalDetailsService.multipleEntriesLabel,
+            fields: expandServiceFormFields(
+              personalDetailsService.formFields,
+              DEFAULT_SERVICE_COUNTRY_OPTIONS,
+              false,
+            ),
+          },
+        ];
 
     return {
       _id: String(item._id),
@@ -421,15 +1186,7 @@ export async function GET(req: NextRequest) {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       selectedServices,
-      serviceForms: selectedServices.map((selectedService) => ({
-        serviceId: selectedService.serviceId,
-        serviceName: selectedService.serviceName,
-        allowMultipleEntries: Boolean(
-          serviceMap.get(selectedService.serviceId)?.allowMultipleEntries,
-        ),
-        multipleEntriesLabel: serviceMap.get(selectedService.serviceId)?.multipleEntriesLabel,
-          fields: serviceMap.get(selectedService.serviceId)?.formFields ?? [],
-      })),
+      serviceForms,
       candidateFormResponses: (item.candidateFormResponses ?? []).map((serviceResponse) => ({
         serviceId: normalizeServiceId(serviceResponse.serviceId),
         serviceName: serviceResponse.serviceName,
@@ -502,17 +1259,34 @@ export async function PATCH(req: NextRequest) {
   const selectedServices = (requestDoc.selectedServices ?? []).map((service) => ({
     serviceId: normalizeServiceId(service.serviceId),
     serviceName: service.serviceName,
+    price:
+      typeof service.price === "number" && Number.isFinite(service.price)
+        ? service.price
+        : 0,
+    currency: normalizeCurrency(service.currency, "INR"),
     yearsOfChecking:
       typeof service.yearsOfChecking === "string" ? service.yearsOfChecking : "default",
   }));
 
-  if (selectedServices.length === 0) {
-    return NextResponse.json({ error: "No services found for this request." }, { status: 400 });
-  }
+  const customerForPricing = await User.findById(requestDoc.customer)
+    .select("selectedServices partnerProfile")
+    .lean();
+  const customerPricingContext = buildCustomerPricingContext(
+    customerForPricing
+      ? {
+          selectedServices: customerForPricing.selectedServices,
+          partnerProfile: (customerForPricing as { partnerProfile?: unknown }).partnerProfile,
+        }
+      : null,
+  );
+
+  const personalDetailsService = await ensureDefaultPersonalDetailsService();
 
   const selectedServiceIds = selectedServices.map((service) => service.serviceId);
   const services = await Service.find({ _id: { $in: selectedServiceIds } })
-    .select("name allowMultipleEntries multipleEntriesLabel formFields")
+    .select(
+      "name allowMultipleEntries multipleEntriesLabel formFields isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
+    )
     .lean();
 
   const serviceMap = new Map(
@@ -521,15 +1295,71 @@ export async function PATCH(req: NextRequest) {
       {
         name: service.name,
         allowMultipleEntries: Boolean(service.allowMultipleEntries),
-          multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
-        formFields: expandServiceFormFields(service.formFields ?? []),
+        multipleEntriesLabel: service.multipleEntriesLabel ?? undefined,
+        hiddenFromCustomerPortal: isHiddenService(service),
+        includeSystemCountryField: !Boolean(
+          service.isPackage ||
+            service.hiddenFromCustomerPortal ||
+            service.isDefaultPersonalDetails,
+        ),
+        formFields: expandServiceFormFields(
+          service.formFields ?? [],
+          DEFAULT_SERVICE_COUNTRY_OPTIONS,
+          !Boolean(
+            service.isPackage ||
+              service.hiddenFromCustomerPortal ||
+              service.isDefaultPersonalDetails,
+          ),
+        ),
       },
     ]),
   );
 
+  const billableSelectedServices = selectedServices.filter(
+    (selectedService) => !serviceMap.get(selectedService.serviceId)?.hiddenFromCustomerPortal,
+  );
+
+  const requiredServiceForms = billableSelectedServices.map((selectedService) => {
+    const serviceDefinition = serviceMap.get(selectedService.serviceId);
+    const serviceRate = customerPricingContext.serviceRatesById.get(selectedService.serviceId);
+    const countryOptions = resolveServiceCountryOptions(
+      serviceRate,
+      requestDoc.verificationCountry,
+      customerPricingContext.companyCountry,
+    );
+
+    return {
+      serviceId: selectedService.serviceId,
+      serviceName: selectedService.serviceName,
+      allowMultipleEntries: Boolean(serviceDefinition?.allowMultipleEntries),
+      formFields: ensureServiceCountrySystemField(
+        serviceDefinition?.formFields ?? [],
+        countryOptions,
+        Boolean(serviceDefinition?.includeSystemCountryField),
+      ),
+    };
+  });
+
+  if (
+    !requiredServiceForms.some(
+      (serviceForm) => serviceForm.serviceId === personalDetailsService.serviceId,
+    )
+  ) {
+    requiredServiceForms.push({
+      serviceId: personalDetailsService.serviceId,
+      serviceName: personalDetailsService.serviceName,
+      allowMultipleEntries: personalDetailsService.allowMultipleEntries,
+      formFields: expandServiceFormFields(
+        personalDetailsService.formFields,
+        DEFAULT_SERVICE_COUNTRY_OPTIONS,
+        false,
+      ),
+    });
+  }
+
   const responseMap = new Map<string, SubmittedServicePayload>(
     parsed.data.responses.map((serviceResponse) => [
-      serviceResponse.serviceId,
+      normalizeServiceId(serviceResponse.serviceId),
       (() => {
         const serviceAnswerMap = new Map<string, SubmittedAnswerPayload>();
 
@@ -564,11 +1394,10 @@ export async function PATCH(req: NextRequest) {
 
   let validationError = "";
 
-  const candidateFormResponses = selectedServices.map((selectedService) => {
-    const serviceDefinition = serviceMap.get(selectedService.serviceId);
-    const serviceAllowsMultipleEntries = Boolean(serviceDefinition?.allowMultipleEntries);
-    const formFields = serviceDefinition?.formFields ?? [];
-    const submittedServicePayload = responseMap.get(selectedService.serviceId);
+  const candidateFormResponses = requiredServiceForms.map((serviceForm) => {
+    const serviceAllowsMultipleEntries = serviceForm.allowMultipleEntries;
+    const formFields = serviceForm.formFields;
+    const submittedServicePayload = responseMap.get(serviceForm.serviceId);
     const submittedAnswers = submittedServicePayload?.answers ?? new Map<string, SubmittedAnswerPayload>();
     const serviceEntryCount = serviceAllowsMultipleEntries
       ? normalizeServiceEntryCount(submittedServicePayload?.serviceEntryCount)
@@ -829,8 +1658,8 @@ export async function PATCH(req: NextRequest) {
     });
 
     return {
-      serviceId: selectedService.serviceId,
-      serviceName: selectedService.serviceName,
+      serviceId: serviceForm.serviceId,
+      serviceName: serviceForm.serviceName,
       serviceEntryCount,
       answers,
     };
@@ -843,9 +1672,17 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
+  const repricedSelectedServices = repriceSelectedServicesByCountry(
+    billableSelectedServices,
+    candidateFormResponses,
+    customerPricingContext,
+    requestDoc.verificationCountry,
+  );
+
   await VerificationRequest.findByIdAndUpdate(parsed.data.requestId, {
     candidateUser: auth.userId,
     candidateEmail,
+    selectedServices: repricedSelectedServices,
     candidateFormResponses,
     customerRejectedFields: [],
     candidateFormStatus: "submitted",
