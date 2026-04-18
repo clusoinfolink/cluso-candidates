@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ChevronDown,
@@ -246,6 +246,43 @@ function supportsRepeatable(field: ServiceFormField, allowMultipleEntries = fals
   return field.fieldType !== "file" && (Boolean(field.repeatable) || allowMultipleEntries);
 }
 
+type PreviewFieldWidth = "full" | "half" | "third";
+
+function resolveFieldPreviewWidth(field: ServiceFormField): PreviewFieldWidth {
+  if (
+    field.previewWidth === "full" ||
+    field.previewWidth === "half" ||
+    field.previewWidth === "third"
+  ) {
+    return field.previewWidth;
+  }
+
+  if (field.fieldType === "file" || field.fieldType === "long_text") {
+    return "full";
+  }
+
+  return "half";
+}
+
+function getFieldGridColumn(field: ServiceFormField) {
+  const width = resolveFieldPreviewWidth(field);
+  if (width === "third") {
+    return "span 4";
+  }
+
+  if (width === "half") {
+    return "span 6";
+  }
+
+  return "span 12";
+}
+
+function getFieldRowTemplate(field: ServiceFormField) {
+  return resolveFieldPreviewWidth(field) === "third"
+    ? "minmax(0, 1fr)"
+    : "minmax(210px, 1fr) minmax(260px, 2fr)";
+}
+
 function parseRepeatableAnswerValues(rawValue: string) {
   const trimmed = rawValue.trim();
   if (!trimmed) {
@@ -377,7 +414,7 @@ function OrdersPageContent() {
     };
   }, [focusRequestId, pendingItems]);
 
-  function getDraftAnswer(item: RequestItem, serviceId: string, field: ServiceFormField) {
+  const getDraftAnswer = useCallback((item: RequestItem, serviceId: string, field: ServiceFormField) => {
     const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
     const draftValue = formDrafts[item._id]?.[serviceId]?.[fieldStorageKey];
     if (draftValue) {
@@ -404,7 +441,7 @@ function OrdersPageContent() {
       fileSize: existingAnswer?.fileSize ?? null,
       fileData: existingAnswer?.fileData ?? "",
     };
-  }
+  }, [formDrafts]);
 
   function onAnswerChange(
     requestId: string,
@@ -474,7 +511,7 @@ function OrdersPageContent() {
     }
 
     return result;
-  }, [pendingItems, formDrafts]);
+  }, [pendingItems, getDraftAnswer]);
 
   function buildPersonalDetailsCopyToggleKey(
     requestId: string,
@@ -1094,11 +1131,21 @@ function OrdersPageContent() {
                                     </strong>
                                   </div>
 
-                                  <div style={{ display: "grid", gap: "0.7rem" }}>
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+                                      gap: "0.75rem",
+                                    }}
+                                  >
                                     {serviceForm.fields.map((field) => {
                                       const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
                                       const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                                       const labelText = `${field.question}${field.required ? " *" : ""}`;
+                                      const fieldGridColumn = getFieldGridColumn(field);
+                                      const fieldRowTemplate = getFieldRowTemplate(field);
+                                      const fieldRowAlignItems =
+                                        resolveFieldPreviewWidth(field) === "third" ? "start" : "center";
                                       const isRejectedField = rejectedFieldSet.has(
                                         buildRejectedFieldKey(
                                           serviceForm.serviceId,
@@ -1113,7 +1160,7 @@ function OrdersPageContent() {
                                             background: "#FFF7F7",
                                             padding: "0.55rem 0.6rem",
                                           }
-                                        : undefined;
+                                        : {};
                                       const constraintHint = getConstraintHint(field);
 
                                       if (field.fieldType === "file") {
@@ -1122,7 +1169,10 @@ function OrdersPageContent() {
                                         }
 
                                         return (
-                                          <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
+                                          <div
+                                            key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
+                                            style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                          >
                                             <label className="label">
                                               <QuestionPrompt
                                                 iconKey={field.iconKey}
@@ -1219,7 +1269,10 @@ function OrdersPageContent() {
 
                                       if (field.fieldType === "long_text") {
                                         return (
-                                          <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`} style={correctionStyle}>
+                                          <div
+                                            key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
+                                            style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                          >
                                             <label className="label">
                                               <QuestionPrompt
                                                 iconKey={field.iconKey}
@@ -1278,9 +1331,10 @@ function OrdersPageContent() {
                                             isRejectedField
                                               ? {
                                                   display: "grid",
-                                                  gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                                  gridTemplateColumns: fieldRowTemplate,
                                                   gap: "0.7rem",
-                                                  alignItems: "center",
+                                                  alignItems: fieldRowAlignItems,
+                                                  gridColumn: fieldGridColumn,
                                                   border: "1px solid #F5C2C7",
                                                   borderRadius: "10px",
                                                   background: "#FFF7F7",
@@ -1288,9 +1342,10 @@ function OrdersPageContent() {
                                                 }
                                               : {
                                                   display: "grid",
-                                                  gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                                  gridTemplateColumns: fieldRowTemplate,
                                                   gap: "0.7rem",
-                                                  alignItems: "center",
+                                                  alignItems: fieldRowAlignItems,
+                                                  gridColumn: fieldGridColumn,
                                                 }
                                           }
                                         >
@@ -1372,11 +1427,22 @@ function OrdersPageContent() {
                               ))}
                             </div>
                           ) : (
-                            serviceForm.fields.map((field) => {
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+                                gap: "0.75rem",
+                              }}
+                            >
+                              {serviceForm.fields.map((field) => {
                               const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);
                               const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
                               const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                               const labelText = `${field.question}${field.required ? " *" : ""}`;
+                              const fieldGridColumn = getFieldGridColumn(field);
+                              const fieldRowTemplate = getFieldRowTemplate(field);
+                              const fieldRowAlignItems =
+                                resolveFieldPreviewWidth(field) === "third" ? "start" : "center";
                               const isNotApplicable =
                                 !serviceAllowsMultipleEntries &&
                                 Boolean(field.allowNotApplicable) &&
@@ -1399,7 +1465,7 @@ function OrdersPageContent() {
                                     background: "#FFF7F7",
                                     padding: "0.55rem 0.6rem",
                                   }
-                                : undefined;
+                                : {};
                               const constraintHint = getConstraintHint(field);
                               const notApplicableToggle =
                                 field.allowNotApplicable && !serviceAllowsMultipleEntries ? (
@@ -1446,7 +1512,10 @@ function OrdersPageContent() {
                                   const repeatableValues = parseRepeatableAnswerValues(answer.value);
 
                                   return (
-                                    <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
+                                    <div
+                                      key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
+                                      style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                    >
                                       <label className="label">
                                         <QuestionPrompt
                                           iconKey={field.iconKey}
@@ -1554,7 +1623,10 @@ function OrdersPageContent() {
                                 }
 
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
+                                  <div
+                                    key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
+                                    style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                  >
                                     <label className="label">
                                       <QuestionPrompt
                                         iconKey={field.iconKey}
@@ -1596,7 +1668,10 @@ function OrdersPageContent() {
 
                               if (field.fieldType === "file") {
                                 return (
-                                  <div key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`} style={correctionStyle}>
+                                  <div
+                                    key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
+                                    style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                  >
                                     <label className="label">
                                       <QuestionPrompt
                                         iconKey={field.iconKey}
@@ -1658,9 +1733,10 @@ function OrdersPageContent() {
                                       isRejectedField
                                         ? {
                                             display: "grid",
-                                            gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                            gridTemplateColumns: fieldRowTemplate,
                                             gap: "0.7rem",
                                             alignItems: "start",
+                                            gridColumn: fieldGridColumn,
                                             border: "1px solid #F5C2C7",
                                             borderRadius: "10px",
                                             background: "#FFF7F7",
@@ -1668,9 +1744,10 @@ function OrdersPageContent() {
                                           }
                                         : {
                                             display: "grid",
-                                            gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                            gridTemplateColumns: fieldRowTemplate,
                                             gap: "0.7rem",
                                             alignItems: "start",
+                                            gridColumn: fieldGridColumn,
                                           }
                                     }
                                   >
@@ -1823,9 +1900,10 @@ function OrdersPageContent() {
                                     isRejectedField
                                       ? {
                                           display: "grid",
-                                          gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                          gridTemplateColumns: fieldRowTemplate,
                                           gap: "0.7rem",
-                                          alignItems: "center",
+                                          alignItems: fieldRowAlignItems,
+                                          gridColumn: fieldGridColumn,
                                           border: "1px solid #F5C2C7",
                                           borderRadius: "10px",
                                           background: "#FFF7F7",
@@ -1833,9 +1911,10 @@ function OrdersPageContent() {
                                         }
                                       : {
                                           display: "grid",
-                                          gridTemplateColumns: "minmax(210px, 1fr) minmax(260px, 2fr)",
+                                          gridTemplateColumns: fieldRowTemplate,
                                           gap: "0.7rem",
-                                          alignItems: "center",
+                                          alignItems: fieldRowAlignItems,
+                                          gridColumn: fieldGridColumn,
                                         }
                                   }
                                 >
@@ -1904,7 +1983,8 @@ function OrdersPageContent() {
                                   </div>
                                 </div>
                               );
-                            })
+                            })}
+                            </div>
                           )}
                         </div>
                       ))}

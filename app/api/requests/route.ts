@@ -250,6 +250,7 @@ type SubmittedServicePayload = {
   serviceEntryCount: number;
   answers: Map<string, SubmittedAnswerPayload>;
 };
+type PreviewFieldWidth = "full" | "half" | "third";
 
 type NormalizedServiceFormField = {
   fieldKey: string;
@@ -264,6 +265,7 @@ type NormalizedServiceFormField = {
   allowNotApplicable: boolean;
   notApplicableText: string;
   copyFromPersonalDetailsFieldKey: string;
+  previewWidth: PreviewFieldWidth;
   dropdownOptions: string[];
 };
 
@@ -360,6 +362,25 @@ function applyAnswerFormatting(
   }
 
   return nextValue;
+}
+
+function normalizePreviewWidth(
+  rawPreviewWidth: unknown,
+  fieldType: unknown,
+): PreviewFieldWidth {
+  if (
+    rawPreviewWidth === "full" ||
+    rawPreviewWidth === "half" ||
+    rawPreviewWidth === "third"
+  ) {
+    return rawPreviewWidth;
+  }
+
+  if (fieldType === "file" || fieldType === "long_text") {
+    return "full";
+  }
+
+  return "half";
 }
 
 function parseRepeatableValues(rawValue: string) {
@@ -728,6 +749,7 @@ function createServiceCountrySystemField(
     allowNotApplicable: false,
     notApplicableText: "Not Applicable",
     copyFromPersonalDetailsFieldKey: "",
+    previewWidth: "half",
     dropdownOptions: dropdownOptions.length > 0 ? dropdownOptions : [...DEFAULT_SERVICE_COUNTRY_OPTIONS],
   };
 }
@@ -737,15 +759,53 @@ function ensureServiceCountrySystemField(
   dropdownOptions: string[],
   includeSystemField: boolean,
 ) {
-  const withoutSystemField = fields.filter(
-    (field) => normalizeCountryName(field.fieldKey) !== SERVICE_COUNTRY_FIELD_KEY,
-  );
+  const resolvedDropdownOptions =
+    dropdownOptions.length > 0
+      ? dropdownOptions
+      : [...DEFAULT_SERVICE_COUNTRY_OPTIONS];
 
-  if (!includeSystemField) {
-    return withoutSystemField;
+  const nextFields: NormalizedServiceFormField[] = [];
+  let hasSystemField = false;
+
+  for (const field of fields) {
+    const isSystemField =
+      String(field.fieldKey ?? "").trim() === SERVICE_COUNTRY_FIELD_KEY;
+
+    if (!isSystemField) {
+      nextFields.push(field);
+      continue;
+    }
+
+    if (!includeSystemField || hasSystemField) {
+      continue;
+    }
+
+    nextFields.push({
+      ...field,
+      fieldKey: SERVICE_COUNTRY_FIELD_KEY,
+      question: SERVICE_COUNTRY_FIELD_QUESTION,
+      iconKey: "global",
+      fieldType: "dropdown",
+      required: true,
+      repeatable: false,
+      minLength: null,
+      maxLength: null,
+      forceUppercase: false,
+      allowNotApplicable: false,
+      notApplicableText: "Not Applicable",
+      copyFromPersonalDetailsFieldKey: "",
+      previewWidth: normalizePreviewWidth(field.previewWidth, "dropdown"),
+      dropdownOptions: resolvedDropdownOptions,
+    });
+
+    hasSystemField = true;
   }
 
-  return [createServiceCountrySystemField(dropdownOptions), ...withoutSystemField];
+  if (includeSystemField && !hasSystemField) {
+    nextFields.push(createServiceCountrySystemField(resolvedDropdownOptions));
+  }
+
+  return nextFields;
 }
 
 function extractCountrySelectionsFromAnswers(
@@ -916,6 +976,7 @@ function expandServiceFormFields(
       allowNotApplicable?: unknown;
       notApplicableText?: unknown;
       copyFromPersonalDetailsFieldKey?: unknown;
+      previewWidth?: unknown;
     };
 
     const baseQuestion = String(field.question ?? "").trim();
@@ -930,6 +991,7 @@ function expandServiceFormFields(
       typeof field.notApplicableText === "string" && field.notApplicableText.trim()
         ? field.notApplicableText.trim()
         : "Not Applicable";
+    const previewWidth = normalizePreviewWidth(field.previewWidth, field.fieldType);
     const fieldTypeRaw = String(field.fieldType ?? "").trim().toLowerCase();
 
     if (fieldTypeRaw === "composite" && Array.isArray(field.subFields) && field.subFields.length > 0) {
@@ -967,6 +1029,7 @@ function expandServiceFormFields(
           allowNotApplicable,
           notApplicableText,
           copyFromPersonalDetailsFieldKey: "",
+          previewWidth,
           dropdownOptions:
             subFieldType === "dropdown"
               ? normalizeDropdownOptions(subField.dropdownOptions)
@@ -1005,6 +1068,7 @@ function expandServiceFormFields(
           : normalizePersonalDetailsSourceFieldKey(
               field.copyFromPersonalDetailsFieldKey,
             ),
+      previewWidth: normalizePreviewWidth(field.previewWidth, fieldType),
       dropdownOptions:
         fieldType === "dropdown" ? normalizeDropdownOptions(field.dropdownOptions) : [],
     });
@@ -1015,6 +1079,20 @@ function expandServiceFormFields(
     dropdownOptions,
     includeSystemField,
   );
+}
+
+function resolveServiceLayoutSourceFields(service: {
+  formFields?: unknown;
+  candidateLayoutSnapshot?: unknown;
+}) {
+  if (
+    Array.isArray(service.candidateLayoutSnapshot) &&
+    service.candidateLayoutSnapshot.length > 0
+  ) {
+    return service.candidateLayoutSnapshot;
+  }
+
+  return service.formFields ?? [];
 }
 
 function candidateOwnershipFilter(candidateEmail: string, candidateUserId: string) {
@@ -1082,7 +1160,7 @@ export async function GET(req: NextRequest) {
     selectedServiceIds.length > 0
       ? await Service.find({ _id: { $in: selectedServiceIds } })
           .select(
-            "name allowMultipleEntries multipleEntriesLabel formFields isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
+            "name allowMultipleEntries multipleEntriesLabel formFields candidateLayoutSnapshot isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
           )
           .lean()
       : [];
@@ -1101,7 +1179,7 @@ export async function GET(req: NextRequest) {
             service.isDefaultPersonalDetails,
         ),
         formFields: expandServiceFormFields(
-          service.formFields ?? [],
+          resolveServiceLayoutSourceFields(service),
           DEFAULT_SERVICE_COUNTRY_OPTIONS,
           !Boolean(
             service.isPackage ||
@@ -1151,26 +1229,27 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const includesPersonalDetailsForm = selectedServiceForms.some(
-      (serviceForm) => serviceForm.serviceId === personalDetailsService.serviceId,
-    );
+    const personalDetailsForm =
+      selectedServiceForms.find(
+        (serviceForm) => serviceForm.serviceId === personalDetailsService.serviceId,
+      ) ?? {
+        serviceId: personalDetailsService.serviceId,
+        serviceName: personalDetailsService.serviceName,
+        allowMultipleEntries: personalDetailsService.allowMultipleEntries,
+        multipleEntriesLabel: personalDetailsService.multipleEntriesLabel,
+        fields: expandServiceFormFields(
+          personalDetailsService.formFields,
+          DEFAULT_SERVICE_COUNTRY_OPTIONS,
+          false,
+        ),
+      };
 
-    const serviceForms = includesPersonalDetailsForm
-      ? selectedServiceForms
-      : [
-          ...selectedServiceForms,
-          {
-            serviceId: personalDetailsService.serviceId,
-            serviceName: personalDetailsService.serviceName,
-            allowMultipleEntries: personalDetailsService.allowMultipleEntries,
-            multipleEntriesLabel: personalDetailsService.multipleEntriesLabel,
-            fields: expandServiceFormFields(
-              personalDetailsService.formFields,
-              DEFAULT_SERVICE_COUNTRY_OPTIONS,
-              false,
-            ),
-          },
-        ];
+    const serviceForms = [
+      personalDetailsForm,
+      ...selectedServiceForms.filter(
+        (serviceForm) => serviceForm.serviceId !== personalDetailsService.serviceId,
+      ),
+    ];
 
     return {
       _id: String(item._id),
@@ -1285,7 +1364,7 @@ export async function PATCH(req: NextRequest) {
   const selectedServiceIds = selectedServices.map((service) => service.serviceId);
   const services = await Service.find({ _id: { $in: selectedServiceIds } })
     .select(
-      "name allowMultipleEntries multipleEntriesLabel formFields isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
+      "name allowMultipleEntries multipleEntriesLabel formFields candidateLayoutSnapshot isPackage hiddenFromCustomerPortal isDefaultPersonalDetails",
     )
     .lean();
 
@@ -1303,7 +1382,7 @@ export async function PATCH(req: NextRequest) {
             service.isDefaultPersonalDetails,
         ),
         formFields: expandServiceFormFields(
-          service.formFields ?? [],
+          resolveServiceLayoutSourceFields(service),
           DEFAULT_SERVICE_COUNTRY_OPTIONS,
           !Boolean(
             service.isPackage ||

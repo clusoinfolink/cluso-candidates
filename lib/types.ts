@@ -44,6 +44,9 @@ export type ServiceVerificationAttempt = {
 export type ServiceVerification = {
   serviceId: string;
   serviceName: string;
+  serviceEntryIndex?: number;
+  serviceEntryCount?: number;
+  serviceInstanceKey?: string;
   status: ServiceVerificationStatus;
   verificationMode: string;
   comment: string;
@@ -202,6 +205,7 @@ export type ServiceFormField = {
   allowNotApplicable?: boolean;
   notApplicableText?: string;
   copyFromPersonalDetailsFieldKey?: string;
+  previewWidth?: "full" | "half" | "third";
 };
 
 export type ServiceItem = {
