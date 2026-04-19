@@ -133,6 +133,8 @@ export type RequestItem = {
       | "file"
       | "date"
       | "dropdown"
+      | "email"
+      | "mobile"
       | "composite";
   }>;
   candidateFormResponses: Array<{
@@ -149,6 +151,8 @@ export type RequestItem = {
         | "file"
         | "date"
         | "dropdown"
+        | "email"
+        | "mobile"
         | "composite";
       subFields?: Array<{
         fieldKey?: string;
@@ -194,6 +198,8 @@ export type ServiceFormField = {
     | "file"
     | "date"
     | "dropdown"
+    | "email"
+    | "mobile"
     | "composite";
   subFields?: ServiceFormSubField[];
   dropdownOptions?: string[];

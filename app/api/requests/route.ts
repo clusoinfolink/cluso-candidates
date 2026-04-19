@@ -2,6 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCandidateAuthFromRequest } from "@/lib/auth";
 import { SUPPORTED_CURRENCIES, type SupportedCurrency } from "@/lib/currencies";
+import {
+  DEFAULT_MOBILE_COUNTRY_CODE,
+  LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS as MOBILE_LEGACY_COUNTRY_QUESTIONS,
+  hasMobileNumberDigits,
+  isMobileNumberFormatValid,
+  parseMobileAnswerValue,
+  resolveDefaultCountryDialCode,
+  serializeMobileAnswerValue,
+  SERVICE_COUNTRY_FIELD_KEY,
+} from "@/lib/mobilePhone";
+import {
+  getAllCountryOptions,
+  getCityOptionsByCountryAndState,
+  getSystemLocationFieldConfig,
+  getStateOptionsByCountry,
+  isValidCityForCountryAndState,
+  isValidStateForCountry,
+  resolveSystemLocationFieldType,
+  SERVICE_COUNTRY_FIELD_QUESTION,
+  SERVICE_STATE_FIELD_QUESTION,
+  type SystemLocationFieldType,
+} from "@/lib/locationHierarchy";
 import { connectMongo } from "@/lib/mongodb";
 import Service from "@/lib/models/Service";
 import User from "@/lib/models/User";
@@ -12,66 +34,18 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
 ]);
+const STANDARD_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_QUESTION_ICON_KEY = "diary";
-const SERVICE_COUNTRY_FIELD_KEY = "system_service_country";
-const SERVICE_COUNTRY_FIELD_QUESTION =
-  "Country";
 const LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS = new Set([
+  ...MOBILE_LEGACY_COUNTRY_QUESTIONS,
   "select verification country for this service",
 ]);
-const DEFAULT_SERVICE_COUNTRY_OPTIONS = [
-  "Afghanistan",
-  "Armenia",
-  "Australia",
-  "Azerbaijan",
-  "Bangladesh",
-  "Bhutan",
-  "Brunei",
-  "Cambodia",
-  "China",
-  "Fiji",
-  "Georgia",
-  "Hong Kong",
-  "India",
-  "Indonesia",
-  "Japan",
-  "Kazakhstan",
-  "Kiribati",
-  "Kyrgyzstan",
-  "Laos",
-  "Macau",
-  "Malaysia",
-  "Maldives",
-  "Marshall Islands",
-  "Micronesia",
-  "Mongolia",
-  "Myanmar",
-  "Nauru",
-  "Nepal",
-  "New Zealand",
-  "Pakistan",
-  "Palau",
-  "Papua New Guinea",
-  "Philippines",
-  "Samoa",
-  "Singapore",
-  "Solomon Islands",
-  "South Korea",
-  "Sri Lanka",
-  "Taiwan",
-  "Tajikistan",
-  "Thailand",
-  "Timor-Leste",
-  "Tonga",
-  "Turkmenistan",
-  "Tuvalu",
-  "Uzbekistan",
-  "Vanuatu",
-  "Vietnam",
-  "United Arab Emirates",
-  "United States",
-  "United Kingdom",
+const DEFAULT_SERVICE_COUNTRY_OPTIONS = getAllCountryOptions();
+const SERVICE_LOCATION_FIELD_TYPES: ServiceLocationFieldType[] = [
+  "country",
+  "state",
+  "city",
 ];
 const DEFAULT_PERSONAL_DETAILS_SERVICE_NAME = "Personal details";
 const DEFAULT_PERSONAL_DETAILS_FORM_FIELDS = [
@@ -214,6 +188,10 @@ const SUPPORTED_QUESTION_ICON_KEYS = new Set([
   "security",
 ]);
 
+function isStandardEmailFormat(value: string) {
+  return STANDARD_EMAIL_PATTERN.test(value.trim());
+}
+
 const submitSchema = z.object({
   requestId: z.string().min(1),
   responses: z.array(
@@ -259,7 +237,7 @@ type NormalizedServiceFormField = {
   fieldKey: string;
   question: string;
   iconKey: string;
-  fieldType: "text" | "long_text" | "number" | "file" | "date" | "dropdown";
+  fieldType: "text" | "long_text" | "number" | "file" | "date" | "dropdown" | "email" | "mobile";
   required: boolean;
   repeatable: boolean;
   minLength: number | null;
@@ -316,11 +294,16 @@ type PersonalDetailsServiceTemplate = {
 };
 
 function supportsLengthConstraints(fieldType: string) {
-  return fieldType === "text" || fieldType === "long_text" || fieldType === "number";
+  return (
+    fieldType === "text" ||
+    fieldType === "long_text" ||
+    fieldType === "email" ||
+    fieldType === "number"
+  );
 }
 
 function supportsLengthTruncation(fieldType: string) {
-  return fieldType === "text" || fieldType === "long_text";
+  return fieldType === "text" || fieldType === "long_text" || fieldType === "email";
 }
 
 function resolveLengthComparableValue(value: string, fieldType: string) {
@@ -345,14 +328,18 @@ function applyAnswerFormatting(
       | "file"
       | "date"
       | "dropdown"
+      | "email"
+      | "mobile"
       | "composite";
     forceUppercase?: boolean;
     maxLength?: number | null;
   },
 ) {
   let nextValue = rawValue;
+  const supportsUppercaseConstraint =
+    field.fieldType === "text" || field.fieldType === "long_text";
 
-  if (field.forceUppercase) {
+  if (supportsUppercaseConstraint && field.forceUppercase) {
     nextValue = nextValue.toUpperCase();
   }
 
@@ -754,13 +741,33 @@ function resolveServiceCountryOptions(
   return [...orderedCountries.values()];
 }
 
-function createServiceCountrySystemField(
-  dropdownOptions: string[],
+function resolveSystemLocationTypeFromField(field: {
+  fieldKey?: unknown;
+  question?: unknown;
+}): SystemLocationFieldType | null {
+  const byFieldKey = resolveSystemLocationFieldType(field.fieldKey);
+  if (byFieldKey) {
+    return byFieldKey;
+  }
+
+  const normalizedQuestion = String(field.question ?? "").trim().toLowerCase();
+  if (normalizedQuestion === SERVICE_COUNTRY_FIELD_QUESTION.toLowerCase()) {
+    return "country";
+  }
+
+  return null;
+}
+
+function createSystemLocationField(
+  locationType: SystemLocationFieldType,
+  countryDropdownOptions: string[],
 ): NormalizedServiceFormField {
+  const config = getSystemLocationFieldConfig(locationType);
+
   return {
-    fieldKey: SERVICE_COUNTRY_FIELD_KEY,
-    question: SERVICE_COUNTRY_FIELD_QUESTION,
-    iconKey: "global",
+    fieldKey: config.fieldKey,
+    question: config.question,
+    iconKey: config.iconKey,
     fieldType: "dropdown",
     required: true,
     repeatable: false,
@@ -770,42 +777,54 @@ function createServiceCountrySystemField(
     allowNotApplicable: false,
     notApplicableText: "Not Applicable",
     copyFromPersonalDetailsFieldKey: "",
-    previewWidth: "half",
-    dropdownOptions: dropdownOptions.length > 0 ? dropdownOptions : [...DEFAULT_SERVICE_COUNTRY_OPTIONS],
+    previewWidth: config.previewWidth,
+    dropdownOptions:
+      locationType === "country"
+        ? countryDropdownOptions.length > 0
+          ? countryDropdownOptions
+          : [...DEFAULT_SERVICE_COUNTRY_OPTIONS]
+        : [...config.dropdownOptions],
   };
 }
 
-function ensureServiceCountrySystemField(
+function ensureSystemLocationFields(
   fields: NormalizedServiceFormField[],
-  dropdownOptions: string[],
+  countryDropdownOptions: string[],
   includeSystemField: boolean,
 ) {
-  const resolvedDropdownOptions =
-    dropdownOptions.length > 0
-      ? dropdownOptions
+  const resolvedCountryDropdownOptions =
+    countryDropdownOptions.length > 0
+      ? countryDropdownOptions
       : [...DEFAULT_SERVICE_COUNTRY_OPTIONS];
 
-  const nextFields: NormalizedServiceFormField[] = [];
-  let hasSystemField = false;
+  const nonSystemFields: NormalizedServiceFormField[] = [];
+  const firstSystemFieldByType = new Map<ServiceLocationFieldType, NormalizedServiceFormField>();
 
   for (const field of fields) {
-    const isSystemField =
-      String(field.fieldKey ?? "").trim() === SERVICE_COUNTRY_FIELD_KEY;
-
-    if (!isSystemField) {
-      nextFields.push(field);
+    const systemFieldType = resolveSystemLocationTypeFromField(field);
+    if (!systemFieldType) {
+      nonSystemFields.push(field);
       continue;
     }
 
-    if (!includeSystemField || hasSystemField) {
+    if (!includeSystemField || firstSystemFieldByType.has(systemFieldType)) {
       continue;
     }
 
-    nextFields.push({
+    const config = getSystemLocationFieldConfig(systemFieldType);
+    const normalizedDropdownOptions = [
+      ...new Set(
+        (field.dropdownOptions ?? [])
+          .map((option) => option.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    firstSystemFieldByType.set(systemFieldType, {
       ...field,
-      fieldKey: SERVICE_COUNTRY_FIELD_KEY,
-      question: SERVICE_COUNTRY_FIELD_QUESTION,
-      iconKey: "global",
+      fieldKey: config.fieldKey,
+      question: config.question,
+      iconKey: config.iconKey,
       fieldType: "dropdown",
       required: true,
       repeatable: false,
@@ -815,18 +834,27 @@ function ensureServiceCountrySystemField(
       allowNotApplicable: false,
       notApplicableText: "Not Applicable",
       copyFromPersonalDetailsFieldKey: "",
-      previewWidth: normalizePreviewWidth(field.previewWidth, "dropdown"),
-      dropdownOptions: resolvedDropdownOptions,
+      previewWidth: config.previewWidth,
+      dropdownOptions:
+        systemFieldType === "country"
+          ? normalizedDropdownOptions.length > 0
+            ? normalizedDropdownOptions
+            : resolvedCountryDropdownOptions
+          : [...config.dropdownOptions],
     });
-
-    hasSystemField = true;
   }
 
-  if (includeSystemField && !hasSystemField) {
-    nextFields.push(createServiceCountrySystemField(resolvedDropdownOptions));
+  if (!includeSystemField) {
+    return nonSystemFields;
   }
 
-  return nextFields;
+  const locationSystemFields = SERVICE_LOCATION_FIELD_TYPES.map(
+    (locationType) =>
+      firstSystemFieldByType.get(locationType) ??
+      createSystemLocationField(locationType, resolvedCountryDropdownOptions),
+  );
+
+  return [...locationSystemFields, ...nonSystemFields];
 }
 
 function extractCountrySelectionsFromAnswers(
@@ -972,7 +1000,7 @@ function expandServiceFormFields(
   includeSystemField = true,
 ): NormalizedServiceFormField[] {
   if (!Array.isArray(rawFields)) {
-    return ensureServiceCountrySystemField([], dropdownOptions, includeSystemField);
+    return ensureSystemLocationFields([], dropdownOptions, includeSystemField);
   }
 
   const expandedFields: NormalizedServiceFormField[] = [];
@@ -1066,7 +1094,9 @@ function expandServiceFormFields(
       fieldTypeRaw === "number" ||
       fieldTypeRaw === "file" ||
       fieldTypeRaw === "date" ||
-      fieldTypeRaw === "dropdown"
+      fieldTypeRaw === "dropdown" ||
+      fieldTypeRaw === "email" ||
+      fieldTypeRaw === "mobile"
         ? fieldTypeRaw
         : "text";
 
@@ -1095,7 +1125,7 @@ function expandServiceFormFields(
     });
   });
 
-  return ensureServiceCountrySystemField(
+  return ensureSystemLocationFields(
     expandedFields,
     dropdownOptions,
     includeSystemField,
@@ -1242,7 +1272,7 @@ export async function GET(req: NextRequest) {
         serviceName: selectedService.serviceName,
         allowMultipleEntries: Boolean(serviceDefinition?.allowMultipleEntries),
         multipleEntriesLabel: serviceDefinition?.multipleEntriesLabel,
-        fields: ensureServiceCountrySystemField(
+        fields: ensureSystemLocationFields(
           serviceDefinition?.formFields ?? [],
           countryOptions,
           Boolean(serviceDefinition?.includeSystemCountryField),
@@ -1432,7 +1462,7 @@ export async function PATCH(req: NextRequest) {
       serviceId: selectedService.serviceId,
       serviceName: selectedService.serviceName,
       allowMultipleEntries: Boolean(serviceDefinition?.allowMultipleEntries),
-      formFields: ensureServiceCountrySystemField(
+      formFields: ensureSystemLocationFields(
         serviceDefinition?.formFields ?? [],
         countryOptions,
         Boolean(serviceDefinition?.includeSystemCountryField),
@@ -1502,6 +1532,93 @@ export async function PATCH(req: NextRequest) {
     const serviceEntryCount = serviceAllowsMultipleEntries
       ? normalizeServiceEntryCount(submittedServicePayload?.serviceEntryCount)
       : 1;
+    const serviceCountryField = formFields.find((field) => {
+      const systemLocationType = resolveSystemLocationTypeFromField(field);
+      if (systemLocationType === "country") {
+        return true;
+      }
+
+      return LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS.has(
+        field.question.trim().toLowerCase(),
+      );
+    });
+    const serviceStateField = formFields.find(
+      (field) => resolveSystemLocationTypeFromField(field) === "state",
+    );
+    const incomingServiceCountryAnswer = serviceCountryField
+      ? (serviceCountryField.fieldKey
+          ? submittedAnswers.get(`key:${serviceCountryField.fieldKey}`)
+          : undefined) ??
+        submittedAnswers.get(`question:${serviceCountryField.question.trim()}`)
+      : undefined;
+    const incomingServiceStateAnswer = serviceStateField
+      ? (serviceStateField.fieldKey
+          ? submittedAnswers.get(`key:${serviceStateField.fieldKey}`)
+          : undefined) ??
+        submittedAnswers.get(`question:${serviceStateField.question.trim()}`)
+      : undefined;
+    const selectedServiceCountries = parseRepeatableValues(
+      incomingServiceCountryAnswer?.value ?? "",
+    )
+      .map((entry) => normalizeCountryName(entry))
+      .filter(Boolean);
+    const selectedServiceStates = parseRepeatableValues(
+      incomingServiceStateAnswer?.value ?? "",
+    )
+      .map((entry) => String(entry ?? "").trim())
+      .filter(Boolean);
+    const fallbackRequestCountry = normalizeCountryName(requestDoc.verificationCountry);
+    const resolveSelectedCountryForEntry = (entryIndex?: number) => {
+      if (typeof entryIndex === "number") {
+        return (
+          selectedServiceCountries[entryIndex] ||
+          selectedServiceCountries[0] ||
+          fallbackRequestCountry
+        );
+      }
+
+      return selectedServiceCountries[0] || fallbackRequestCountry;
+    };
+    const resolveSelectedStateForEntry = (entryIndex?: number) => {
+      if (typeof entryIndex === "number") {
+        return selectedServiceStates[entryIndex] || selectedServiceStates[0] || "";
+      }
+
+      return selectedServiceStates[0] || "";
+    };
+    const resolveDropdownOptionsForField = (
+      field: NormalizedServiceFormField,
+      entryIndex?: number,
+    ) => {
+      const systemLocationType = resolveSystemLocationTypeFromField(field);
+
+      if (systemLocationType === "state") {
+        return getStateOptionsByCountry(resolveSelectedCountryForEntry(entryIndex));
+      }
+
+      if (systemLocationType === "city") {
+        return getCityOptionsByCountryAndState(
+          resolveSelectedCountryForEntry(entryIndex),
+          resolveSelectedStateForEntry(entryIndex),
+        );
+      }
+
+      if (systemLocationType === "country") {
+        return field.dropdownOptions.length > 0
+          ? field.dropdownOptions
+          : [...DEFAULT_SERVICE_COUNTRY_OPTIONS];
+      }
+
+      return field.dropdownOptions;
+    };
+    const resolveDefaultMobileCountryCode = (entryIndex?: number) => {
+      const selectedCountryForEntry = resolveSelectedCountryForEntry(entryIndex);
+
+      return resolveDefaultCountryDialCode(
+        selectedCountryForEntry,
+        DEFAULT_MOBILE_COUNTRY_CODE,
+      );
+    };
 
     const answers = formFields.map((field) => {
       const incomingAnswer =
@@ -1536,11 +1653,94 @@ export async function PATCH(req: NextRequest) {
       const normalizedValue = applyAnswerFormatting(value, field);
 
       const trimmedValue = normalizedValue.trim();
+      const normalizedSingleMobileValue =
+        field.fieldType === "mobile"
+          ? parseMobileAnswerValue(
+              trimmedValue,
+              resolveDefaultMobileCountryCode(),
+            )
+          : null;
+      const persistedMobileValue =
+        normalizedSingleMobileValue &&
+        hasMobileNumberDigits(normalizedSingleMobileValue.number)
+          ? serializeMobileAnswerValue(normalizedSingleMobileValue)
+          : "";
+      const dropdownOptionsForSingleValue =
+        field.fieldType === "dropdown"
+          ? resolveDropdownOptionsForField(field)
+          : field.dropdownOptions;
       const isDropdownWithDefaultSelection =
         field.fieldType === "dropdown" &&
-        isDefaultDropdownOptionValue(trimmedValue, field.dropdownOptions);
-      const normalizedTrimmedValue = isDropdownWithDefaultSelection ? "" : trimmedValue;
-      const persistedValue = isDropdownWithDefaultSelection ? "" : normalizedValue;
+        isDefaultDropdownOptionValue(trimmedValue, dropdownOptionsForSingleValue);
+      const normalizedTrimmedValue =
+        field.fieldType === "mobile"
+          ? persistedMobileValue.trim()
+          : isDropdownWithDefaultSelection
+            ? ""
+            : trimmedValue;
+      const persistedValue =
+        field.fieldType === "mobile"
+          ? persistedMobileValue
+          : isDropdownWithDefaultSelection
+            ? ""
+            : normalizedValue;
+      const resolveDropdownValidationError = (
+        selectedValue: string,
+        entryIndex?: number,
+      ) => {
+        if (!selectedValue || field.fieldType !== "dropdown") {
+          return "";
+        }
+
+        const systemLocationType = resolveSystemLocationTypeFromField(field);
+        const selectedCountryForEntry = resolveSelectedCountryForEntry(entryIndex);
+        const selectedStateForEntry = resolveSelectedStateForEntry(entryIndex);
+
+        if (systemLocationType === "state") {
+          if (!selectedCountryForEntry) {
+            return `${SERVICE_COUNTRY_FIELD_QUESTION} is required before selecting ${field.question}.`;
+          }
+
+          if (!isValidStateForCountry(selectedCountryForEntry, selectedValue)) {
+            return `${field.question} does not belong to selected ${SERVICE_COUNTRY_FIELD_QUESTION}.`;
+          }
+
+          return "";
+        }
+
+        if (systemLocationType === "city") {
+          if (!selectedCountryForEntry) {
+            return `${SERVICE_COUNTRY_FIELD_QUESTION} is required before selecting ${field.question}.`;
+          }
+
+          if (!selectedStateForEntry) {
+            return `${SERVICE_STATE_FIELD_QUESTION} is required before selecting ${field.question}.`;
+          }
+
+          if (!isValidStateForCountry(selectedCountryForEntry, selectedStateForEntry)) {
+            return `${SERVICE_STATE_FIELD_QUESTION} does not belong to selected ${SERVICE_COUNTRY_FIELD_QUESTION}.`;
+          }
+
+          if (
+            !isValidCityForCountryAndState(
+              selectedCountryForEntry,
+              selectedStateForEntry,
+              selectedValue,
+            )
+          ) {
+            return `${field.question} does not belong to selected ${SERVICE_STATE_FIELD_QUESTION}.`;
+          }
+
+          return "";
+        }
+
+        const dropdownOptions = resolveDropdownOptionsForField(field, entryIndex);
+        if (!dropdownOptions.includes(selectedValue)) {
+          return `${field.question} must match one of the configured options.`;
+        }
+
+        return "";
+      };
 
       if (isNotApplicable) {
         return {
@@ -1598,14 +1798,36 @@ export async function PATCH(req: NextRequest) {
 
       if (isRepeatable) {
         const parsedValues = parseRepeatableValues(value);
-        const normalizedValues = parsedValues
-          .map((entry) => applyAnswerFormatting(entry, field).trim())
-          .map((entry) =>
-            field.fieldType === "dropdown" && isDefaultDropdownOptionValue(entry, field.dropdownOptions)
-              ? ""
-              : entry,
-          )
-          .filter(Boolean);
+        const normalizedValuesByEntry = parsedValues
+          .map((entry, entryIndex) => {
+            const formattedEntry = applyAnswerFormatting(entry, field).trim();
+
+            if (field.fieldType === "mobile") {
+              const parsedMobileValue = parseMobileAnswerValue(
+                formattedEntry,
+                resolveDefaultMobileCountryCode(entryIndex),
+              );
+
+              if (!hasMobileNumberDigits(parsedMobileValue.number)) {
+                return "";
+              }
+
+              return serializeMobileAnswerValue(parsedMobileValue);
+            }
+
+            if (
+              field.fieldType === "dropdown" &&
+              isDefaultDropdownOptionValue(
+                formattedEntry,
+                resolveDropdownOptionsForField(field, entryIndex),
+              )
+            ) {
+              return "";
+            }
+
+            return formattedEntry;
+          });
+        const normalizedValues = normalizedValuesByEntry.filter(Boolean);
         const isNotApplicableRepeatableEntry = (entry: string) =>
           allowNotApplicable && entry === notApplicableText;
 
@@ -1641,13 +1863,49 @@ export async function PATCH(req: NextRequest) {
         }
 
         if (field.fieldType === "dropdown") {
+          for (const [entryIndex, entry] of normalizedValuesByEntry.entries()) {
+            if (!entry) {
+              continue;
+            }
+
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
+            const dropdownValidationError = resolveDropdownValidationError(
+              entry,
+              entryIndex,
+            );
+            if (dropdownValidationError && !validationError) {
+              validationError = dropdownValidationError;
+            }
+          }
+        }
+
+        if (field.fieldType === "email") {
           for (const entry of normalizedValues) {
             if (isNotApplicableRepeatableEntry(entry)) {
               continue;
             }
 
-            if (!field.dropdownOptions.includes(entry) && !validationError) {
-              validationError = `${field.question} must match one of the configured options.`;
+            if (!isStandardEmailFormat(entry) && !validationError) {
+              validationError = `${field.question} must contain valid email addresses.`;
+            }
+          }
+        }
+
+        if (field.fieldType === "mobile") {
+          for (const entry of normalizedValues) {
+            if (isNotApplicableRepeatableEntry(entry)) {
+              continue;
+            }
+
+            const parsedMobileValue = parseMobileAnswerValue(
+              entry,
+              DEFAULT_MOBILE_COUNTRY_CODE,
+            );
+            if (!isMobileNumberFormatValid(parsedMobileValue.number) && !validationError) {
+              validationError = `${field.question} must contain valid mobile numbers.`;
             }
           }
         }
@@ -1724,10 +1982,33 @@ export async function PATCH(req: NextRequest) {
       if (
         field.fieldType === "dropdown" &&
         normalizedTrimmedValue &&
-        !field.dropdownOptions.includes(normalizedTrimmedValue) &&
         !validationError
       ) {
-        validationError = `${field.question} must match one of the configured options.`;
+        const dropdownValidationError = resolveDropdownValidationError(
+          normalizedTrimmedValue,
+        );
+        if (dropdownValidationError) {
+          validationError = dropdownValidationError;
+        }
+      }
+
+      if (
+        field.fieldType === "email" &&
+        normalizedTrimmedValue &&
+        !isStandardEmailFormat(normalizedTrimmedValue) &&
+        !validationError
+      ) {
+        validationError = `${field.question} must be a valid email address.`;
+      }
+
+      if (
+        field.fieldType === "mobile" &&
+        normalizedTrimmedValue &&
+        normalizedSingleMobileValue &&
+        !isMobileNumberFormatValid(normalizedSingleMobileValue.number) &&
+        !validationError
+      ) {
+        validationError = `${field.question} must be a valid mobile number.`;
       }
 
       if (hasLengthConstraints && normalizedTrimmedValue) {

@@ -26,6 +26,22 @@ import { getAlertTone } from "@/lib/alerts";
 import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
+import {
+  DEFAULT_MOBILE_COUNTRY_CODE,
+  hasMobileNumberDigits,
+  LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS,
+  MOBILE_COUNTRY_CODE_OPTIONS,
+  parseMobileAnswerValue,
+  resolveDefaultCountryDialCode,
+  serializeMobileAnswerValue,
+} from "@/lib/mobilePhone";
+import {
+  getCityOptionsByCountryAndState,
+  getStateOptionsByCountry,
+  resolveSystemLocationFieldType,
+  SERVICE_COUNTRY_FIELD_QUESTION,
+  type SystemLocationFieldType,
+} from "@/lib/locationHierarchy";
 import { RequestItem, ServiceFormField } from "@/lib/types";
 
 type DraftAnswer = {
@@ -72,6 +88,35 @@ function isDefaultDropdownOptionValue(rawValue: string, allowedOptions?: string[
   return !allowedOptions.some(
     (option) => option.trim().toLowerCase() === normalizedLower,
   );
+}
+
+function resolveServiceLocationType(field: ServiceFormField): SystemLocationFieldType | null {
+  const byFieldKey = resolveSystemLocationFieldType(field.fieldKey);
+  if (byFieldKey) {
+    return byFieldKey;
+  }
+
+  const normalizedQuestion = field.question.trim().toLowerCase();
+  if (
+    normalizedQuestion === SERVICE_COUNTRY_FIELD_QUESTION.toLowerCase() ||
+    LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS.has(normalizedQuestion)
+  ) {
+    return "country";
+  }
+
+  return null;
+}
+
+function isServiceCountryField(field: ServiceFormField) {
+  return resolveServiceLocationType(field) === "country";
+}
+
+function isServiceStateField(field: ServiceFormField) {
+  return resolveServiceLocationType(field) === "state";
+}
+
+function isServiceCityField(field: ServiceFormField) {
+  return resolveServiceLocationType(field) === "city";
 }
 
 function renderQuestionIcon(iconKey?: string) {
@@ -220,7 +265,12 @@ function buildRejectedFieldKey(serviceId: string, fieldKey: string, question: st
 }
 
 function supportsLengthConstraints(field: ServiceFormField) {
-  return field.fieldType === "text" || field.fieldType === "long_text" || field.fieldType === "number";
+  return (
+    field.fieldType === "text" ||
+    field.fieldType === "long_text" ||
+    field.fieldType === "email" ||
+    field.fieldType === "number"
+  );
 }
 
 function supportsUppercaseConstraint(field: ServiceFormField) {
@@ -547,6 +597,210 @@ function OrdersPageContent() {
     }`;
   }
 
+  function findServiceLocationField(
+    serviceForm: RequestServiceForm,
+    locationType: SystemLocationFieldType,
+  ) {
+    return serviceForm.fields.find(
+      (candidateField) => resolveServiceLocationType(candidateField) === locationType,
+    );
+  }
+
+  function resolveServiceLocationValue(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    locationType: SystemLocationFieldType,
+    entryIndex?: number,
+  ) {
+    const locationField = findServiceLocationField(serviceForm, locationType);
+    if (!locationField) {
+      return "";
+    }
+
+    const answer = getDraftAnswer(item, serviceForm.serviceId, locationField);
+    const values = parseRepeatableAnswerValues(answer.value)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (typeof entryIndex === "number") {
+      return values[entryIndex] || values[0] || "";
+    }
+
+    return values[0] || "";
+  }
+
+  function resolveMinDateConstraint(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    entryIndex?: number,
+  ) {
+    if (field.fieldType !== "date") {
+      return undefined;
+    }
+
+    const lowerQ = field.question.trim().toLowerCase();
+    const isToField = lowerQ.includes(" to") || lowerQ.endsWith("to") || lowerQ.includes("- to") || lowerQ === "to";
+    if (!isToField) {
+      return undefined;
+    }
+
+    const currentIndex = serviceForm.fields.findIndex(
+      (f) => (f.fieldKey || f.question) === (field.fieldKey || field.question),
+    );
+    if (currentIndex <= 0) {
+      return undefined;
+    }
+
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const prevField = serviceForm.fields[i];
+      if (prevField.fieldType === "date" && prevField.question.toLowerCase().includes("from")) {
+        const answer = getDraftAnswer(item, serviceForm.serviceId, prevField);
+        const values = parseRepeatableAnswerValues(answer.value).map((entry) => entry.trim());
+        const dateStr = typeof entryIndex === "number" ? values[entryIndex] : values[0];
+        return dateStr || undefined;
+      }
+    }
+
+    return undefined;
+  }
+
+  function resolveDropdownOptionsForField(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    entryIndex?: number,
+  ) {
+    if (field.fieldType !== "dropdown") {
+      return field.dropdownOptions ?? [];
+    }
+
+    if (isServiceStateField(field)) {
+      const selectedCountry = resolveServiceLocationValue(
+        item,
+        serviceForm,
+        "country",
+        entryIndex,
+      );
+
+      if (!selectedCountry) {
+        return [] as string[];
+      }
+
+      return getStateOptionsByCountry(selectedCountry);
+    }
+
+    if (isServiceCityField(field)) {
+      const selectedCountry = resolveServiceLocationValue(
+        item,
+        serviceForm,
+        "country",
+        entryIndex,
+      );
+      const selectedState = resolveServiceLocationValue(
+        item,
+        serviceForm,
+        "state",
+        entryIndex,
+      );
+
+      if (!selectedCountry || !selectedState) {
+        return [] as string[];
+      }
+
+      return getCityOptionsByCountryAndState(selectedCountry, selectedState);
+    }
+
+    return field.dropdownOptions ?? [];
+  }
+
+  function isLocationFieldSelectionBlocked(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    entryIndex?: number,
+  ) {
+    if (field.fieldType !== "dropdown") {
+      return false;
+    }
+
+    if (isServiceStateField(field)) {
+      return !resolveServiceLocationValue(item, serviceForm, "country", entryIndex);
+    }
+
+    if (isServiceCityField(field)) {
+      return (
+        !resolveServiceLocationValue(item, serviceForm, "country", entryIndex) ||
+        !resolveServiceLocationValue(item, serviceForm, "state", entryIndex)
+      );
+    }
+
+    return false;
+  }
+
+  function resolveServiceCountryDialCode(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    entryIndex?: number,
+  ) {
+    const selectedCountry = resolveServiceLocationValue(
+      item,
+      serviceForm,
+      "country",
+      entryIndex,
+    );
+
+    return resolveDefaultCountryDialCode(
+      selectedCountry || item.verificationCountry,
+      DEFAULT_MOBILE_COUNTRY_CODE,
+    );
+  }
+
+  function clearSingleLocationFieldValue(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    locationType: SystemLocationFieldType,
+  ) {
+    const fieldToClear = findServiceLocationField(serviceForm, locationType);
+    if (!fieldToClear) {
+      return;
+    }
+
+    const fieldStorageKey = fieldToClear.fieldKey?.trim() || fieldToClear.question.trim();
+    const answer = getDraftAnswer(item, serviceForm.serviceId, fieldToClear);
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: "",
+    });
+  }
+
+  function setSingleFieldValueWithLocationCascade(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    field: ServiceFormField,
+    answer: DraftAnswer,
+    fieldStorageKey: string,
+    rawValue: string,
+  ) {
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: rawValue,
+    });
+
+    if (isServiceCountryField(field)) {
+      clearSingleLocationFieldValue(item, serviceForm, "state");
+      clearSingleLocationFieldValue(item, serviceForm, "city");
+      return;
+    }
+
+    if (isServiceStateField(field)) {
+      clearSingleLocationFieldValue(item, serviceForm, "city");
+    }
+  }
+
   function resolvePersonalDetailsCopyValue(field: ServiceFormField, sourceValue: string) {
     const normalizedSourceValue = sourceValue.trim();
     if (!normalizedSourceValue) {
@@ -558,6 +812,18 @@ function OrdersPageContent() {
         (option) => option.trim().toLowerCase() === normalizedSourceValue.toLowerCase(),
       );
       return matchingOption ?? null;
+    }
+
+    if (field.fieldType === "mobile") {
+      const parsedMobileValue = parseMobileAnswerValue(
+        normalizedSourceValue,
+        DEFAULT_MOBILE_COUNTRY_CODE,
+      );
+      if (!hasMobileNumberDigits(parsedMobileValue.number)) {
+        return null;
+      }
+
+      return serializeMobileAnswerValue(parsedMobileValue);
     }
 
     return normalizeAnswerValue(field, normalizedSourceValue);
@@ -818,6 +1084,44 @@ function OrdersPageContent() {
       notApplicable: false,
       value: serializeRepeatableAnswerValues(nextValues),
     });
+
+    if (isServiceCountryField(field)) {
+      clearServiceLevelEntryLocationFieldValue(item, serviceForm, "state", entryIndex);
+      clearServiceLevelEntryLocationFieldValue(item, serviceForm, "city", entryIndex);
+      return;
+    }
+
+    if (isServiceStateField(field)) {
+      clearServiceLevelEntryLocationFieldValue(item, serviceForm, "city", entryIndex);
+    }
+  }
+
+  function clearServiceLevelEntryLocationFieldValue(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    locationType: SystemLocationFieldType,
+    entryIndex: number,
+  ) {
+    const fieldToClear = findServiceLocationField(serviceForm, locationType);
+    if (!fieldToClear || fieldToClear.fieldType === "file") {
+      return;
+    }
+
+    const fieldStorageKey = fieldToClear.fieldKey?.trim() || fieldToClear.question.trim();
+    const answer = getDraftAnswer(item, serviceForm.serviceId, fieldToClear);
+    const nextValues = parseRepeatableAnswerValues(answer.value);
+
+    while (nextValues.length <= entryIndex) {
+      nextValues.push("");
+    }
+
+    nextValues[entryIndex] = "";
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: serializeRepeatableAnswerValues(nextValues),
+    });
   }
 
   function setServiceLevelEntryNotApplicable(
@@ -912,12 +1216,29 @@ function OrdersPageContent() {
           answer.notApplicableText?.trim() ||
           "Not Applicable";
         const usesRepeatableMode = supportsRepeatable(field, serviceAllowsMultipleEntries);
-        const normalizedSingleValue = normalizeAnswerValue(field, answer.value);
+        const defaultMobileCountryCode = resolveServiceCountryDialCode(
+          item,
+          serviceForm,
+        );
+        const parsedSingleMobileValue =
+          field.fieldType === "mobile"
+            ? parseMobileAnswerValue(answer.value, defaultMobileCountryCode)
+            : null;
+        const normalizedSingleValue =
+          field.fieldType === "mobile" && parsedSingleMobileValue
+            ? hasMobileNumberDigits(parsedSingleMobileValue.number)
+              ? serializeMobileAnswerValue(parsedSingleMobileValue)
+              : ""
+            : normalizeAnswerValue(field, answer.value);
+        const dropdownOptionsForSingleValue =
+          field.fieldType === "dropdown"
+            ? resolveDropdownOptionsForField(item, serviceForm, field)
+            : field.dropdownOptions;
         const isDropdownWithDefaultSelection =
           field.fieldType === "dropdown" &&
-          isDefaultDropdownOptionValue(normalizedSingleValue, field.dropdownOptions);
+          isDefaultDropdownOptionValue(normalizedSingleValue, dropdownOptionsForSingleValue);
         const normalizedRepeatableValues = parseRepeatableAnswerValues(answer.value)
-          .map((entry) => {
+          .map((entry, entryIndex) => {
             const trimmedEntry = entry.trim();
             if (
               Boolean(field.allowNotApplicable) &&
@@ -927,10 +1248,26 @@ function OrdersPageContent() {
               return resolvedNotApplicableText;
             }
 
+            if (field.fieldType === "mobile") {
+              const parsedMobileEntry = parseMobileAnswerValue(
+                entry,
+                resolveServiceCountryDialCode(item, serviceForm, entryIndex),
+              );
+
+              if (!hasMobileNumberDigits(parsedMobileEntry.number)) {
+                return "";
+              }
+
+              return serializeMobileAnswerValue(parsedMobileEntry);
+            }
+
             const normalizedEntry = normalizeAnswerValue(field, entry).trim();
             if (
               field.fieldType === "dropdown" &&
-              isDefaultDropdownOptionValue(normalizedEntry, field.dropdownOptions)
+              isDefaultDropdownOptionValue(
+                normalizedEntry,
+                resolveDropdownOptionsForField(item, serviceForm, field, entryIndex),
+              )
             ) {
               return "";
             }
@@ -1311,6 +1648,17 @@ function OrdersPageContent() {
 
                                       const repeatableValues = parseRepeatableAnswerValues(answer.value);
                                       const entryValue = repeatableValues[serviceEntryIndex] ?? "";
+                                      const parsedEntryMobileValue =
+                                        field.fieldType === "mobile"
+                                          ? parseMobileAnswerValue(
+                                              entryValue,
+                                              resolveServiceCountryDialCode(
+                                                item,
+                                                serviceForm,
+                                                serviceEntryIndex,
+                                              ),
+                                            )
+                                          : null;
                                       const resolvedNotApplicableText =
                                         field.notApplicableText?.trim() ||
                                         answer.notApplicableText?.trim() ||
@@ -1416,8 +1764,27 @@ function OrdersPageContent() {
                                           ? "number"
                                           : field.fieldType === "date"
                                             ? "date"
+                                            : field.fieldType === "email"
+                                              ? "email"
                                             : "text";
                                       const isDropdownField = field.fieldType === "dropdown";
+                                      const dropdownOptions = isDropdownField
+                                        ? resolveDropdownOptionsForField(
+                                            item,
+                                            serviceForm,
+                                            field,
+                                            serviceEntryIndex,
+                                          )
+                                        : [];
+                                      const isLocationSelectionBlocked =
+                                        isDropdownField &&
+                                        isLocationFieldSelectionBlocked(
+                                          item,
+                                          serviceForm,
+                                          field,
+                                          serviceEntryIndex,
+                                        );
+                                      const isMobileField = field.fieldType === "mobile";
 
                                       return (
                                         <div
@@ -1469,15 +1836,69 @@ function OrdersPageContent() {
                                                   )
                                                 }
                                                 required={field.required && !isEntryNotApplicable}
-                                                disabled={isEntryNotApplicable}
+                                                disabled={isEntryNotApplicable || isLocationSelectionBlocked}
                                               >
                                                 <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
-                                                {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                                {dropdownOptions.map((option, optionIndex) => (
                                                   <option key={`${fieldStorageKey}-${serviceEntryIndex}-${optionIndex}`} value={option}>
                                                     {option}
                                                   </option>
                                                 ))}
                                               </select>
+                                            ) : isMobileField && parsedEntryMobileValue ? (
+                                              <div
+                                                style={{
+                                                  display: "grid",
+                                                  gridTemplateColumns: "minmax(120px, 0.9fr) minmax(0, 1fr)",
+                                                  gap: "0.45rem",
+                                                }}
+                                              >
+                                                <select
+                                                  className="input"
+                                                  value={parsedEntryMobileValue.countryCode}
+                                                  onChange={(e) =>
+                                                    setServiceLevelEntryFieldValue(
+                                                      item,
+                                                      serviceForm,
+                                                      field,
+                                                      serviceEntryIndex,
+                                                      serializeMobileAnswerValue({
+                                                        countryCode: e.target.value,
+                                                        number: parsedEntryMobileValue.number,
+                                                      }),
+                                                    )
+                                                  }
+                                                  disabled={isEntryNotApplicable}
+                                                >
+                                                  {MOBILE_COUNTRY_CODE_OPTIONS.map((countryCodeOption) => (
+                                                    <option
+                                                      key={`${fieldStorageKey}-${serviceEntryIndex}-${countryCodeOption}`}
+                                                      value={countryCodeOption}
+                                                    >
+                                                      {countryCodeOption}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                                <input
+                                                  className="input"
+                                                  type="tel"
+                                                  value={parsedEntryMobileValue.number}
+                                                  onChange={(e) =>
+                                                    setServiceLevelEntryFieldValue(
+                                                      item,
+                                                      serviceForm,
+                                                      field,
+                                                      serviceEntryIndex,
+                                                      serializeMobileAnswerValue({
+                                                        countryCode: parsedEntryMobileValue.countryCode,
+                                                        number: e.target.value,
+                                                      }),
+                                                    )
+                                                  }
+                                                  required={field.required && !isEntryNotApplicable}
+                                                  disabled={isEntryNotApplicable}
+                                                />
+                                              </div>
                                             ) : (
                                               <input
                                                 className="input"
@@ -1492,6 +1913,7 @@ function OrdersPageContent() {
                                                     e.target.value,
                                                   )
                                                 }
+                                                min={field.fieldType === "date" ? resolveMinDateConstraint(item, serviceForm, field, serviceEntryIndex) : undefined}
                                                 minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                                 maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                                 required={field.required && !isEntryNotApplicable}
@@ -1815,8 +2237,24 @@ function OrdersPageContent() {
                                   ? "number"
                                   : field.fieldType === "date"
                                     ? "date"
+                                    : field.fieldType === "email"
+                                      ? "email"
                                     : "text";
                               const isDropdownField = field.fieldType === "dropdown";
+                              const dropdownOptions = isDropdownField
+                                ? resolveDropdownOptionsForField(item, serviceForm, field)
+                                : [];
+                              const isLocationSelectionBlocked =
+                                isDropdownField &&
+                                isLocationFieldSelectionBlocked(item, serviceForm, field);
+                              const isMobileField = field.fieldType === "mobile";
+                              const parsedSingleMobileValue =
+                                isMobileField
+                                  ? parseMobileAnswerValue(
+                                      answer.value,
+                                      resolveServiceCountryDialCode(item, serviceForm),
+                                    )
+                                  : null;
 
                               if (supportsRepeatable(field, serviceAllowsMultipleEntries)) {
                                 const repeatableValues = parseRepeatableAnswerValues(answer.value);
@@ -1867,6 +2305,36 @@ function OrdersPageContent() {
                                             gap: "0.35rem",
                                           }}
                                         >
+                                            {(() => {
+                                              const repeatableDropdownOptions = isDropdownField
+                                                ? resolveDropdownOptionsForField(
+                                                    item,
+                                                    serviceForm,
+                                                    field,
+                                                    entryIndex,
+                                                  )
+                                                : [];
+                                              const isRepeatableLocationSelectionBlocked =
+                                                isDropdownField &&
+                                                isLocationFieldSelectionBlocked(
+                                                  item,
+                                                  serviceForm,
+                                                  field,
+                                                  entryIndex,
+                                                );
+                                              const parsedRepeatableMobileValue =
+                                                isMobileField
+                                                  ? parseMobileAnswerValue(
+                                                      entryValue,
+                                                      resolveServiceCountryDialCode(
+                                                        item,
+                                                        serviceForm,
+                                                        entryIndex,
+                                                      ),
+                                                    )
+                                                  : null;
+
+                                              return (
                                           <div
                                             style={{
                                               display: "grid",
@@ -1888,15 +2356,67 @@ function OrdersPageContent() {
                                                   });
                                                 }}
                                                 required={field.required && !isNotApplicable}
-                                                disabled={isNotApplicable}
+                                                disabled={isNotApplicable || isRepeatableLocationSelectionBlocked}
                                               >
                                                 <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
-                                                {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                                {repeatableDropdownOptions.map((option, optionIndex) => (
                                                   <option key={`${fieldStorageKey}-${entryIndex}-${optionIndex}`} value={option}>
                                                     {option}
                                                   </option>
                                                 ))}
                                               </select>
+                                            ) : isMobileField && parsedRepeatableMobileValue ? (
+                                              <div
+                                                style={{
+                                                  display: "grid",
+                                                  gridTemplateColumns: "minmax(120px, 0.9fr) minmax(0, 1fr)",
+                                                  gap: "0.45rem",
+                                                }}
+                                              >
+                                                <select
+                                                  className="input"
+                                                  value={parsedRepeatableMobileValue.countryCode}
+                                                  onChange={(e) => {
+                                                    const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                    nextValues[entryIndex] = serializeMobileAnswerValue({
+                                                      countryCode: e.target.value,
+                                                      number: parsedRepeatableMobileValue.number,
+                                                    });
+                                                    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                                      ...answer,
+                                                      value: serializeRepeatableAnswerValues(nextValues),
+                                                    });
+                                                  }}
+                                                  disabled={isNotApplicable}
+                                                >
+                                                  {MOBILE_COUNTRY_CODE_OPTIONS.map((countryCodeOption) => (
+                                                    <option
+                                                      key={`${fieldStorageKey}-${entryIndex}-${countryCodeOption}`}
+                                                      value={countryCodeOption}
+                                                    >
+                                                      {countryCodeOption}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                                <input
+                                                  className="input"
+                                                  type="tel"
+                                                  value={parsedRepeatableMobileValue.number}
+                                                  onChange={(e) => {
+                                                    const nextValues = parseRepeatableAnswerValues(answer.value);
+                                                    nextValues[entryIndex] = serializeMobileAnswerValue({
+                                                      countryCode: parsedRepeatableMobileValue.countryCode,
+                                                      number: e.target.value,
+                                                    });
+                                                    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                                      ...answer,
+                                                      value: serializeRepeatableAnswerValues(nextValues),
+                                                    });
+                                                  }}
+                                                  required={field.required && !isNotApplicable}
+                                                  disabled={isNotApplicable}
+                                                />
+                                              </div>
                                             ) : (
                                               <input
                                                 className="input"
@@ -1910,6 +2430,7 @@ function OrdersPageContent() {
                                                     value: serializeRepeatableAnswerValues(nextValues),
                                                   });
                                                 }}
+                                                min={field.fieldType === "date" ? resolveMinDateConstraint(item, serviceForm, field, entryIndex) : undefined}
                                                 minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                                 maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                                 required={field.required && !isNotApplicable}
@@ -1938,6 +2459,8 @@ function OrdersPageContent() {
                                               Remove
                                             </button>
                                           </div>
+                                              );
+                                            })()}
                                           {renderPersonalDetailsCopyCheckbox({
                                             item,
                                             serviceForm,
@@ -2028,21 +2551,70 @@ function OrdersPageContent() {
                                         className="input"
                                         value={answer.value}
                                         onChange={(e) =>
-                                          onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
-                                            ...answer,
-                                            value: e.target.value,
-                                          })
+                                          setSingleFieldValueWithLocationCascade(
+                                            item,
+                                            serviceForm,
+                                            field,
+                                            answer,
+                                            fieldStorageKey,
+                                            e.target.value,
+                                          )
                                         }
                                         required={field.required && !isNotApplicable}
-                                        disabled={isNotApplicable}
+                                        disabled={isNotApplicable || isLocationSelectionBlocked}
                                       >
                                         <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
-                                        {(field.dropdownOptions ?? []).map((option, optionIndex) => (
+                                        {dropdownOptions.map((option, optionIndex) => (
                                           <option key={`${fieldStorageKey}-${optionIndex}`} value={option}>
                                             {option}
                                           </option>
                                         ))}
                                       </select>
+                                    ) : isMobileField && parsedSingleMobileValue ? (
+                                      <div
+                                        style={{
+                                          display: "grid",
+                                          gridTemplateColumns: "minmax(120px, 0.9fr) minmax(0, 1fr)",
+                                          gap: "0.45rem",
+                                        }}
+                                      >
+                                        <select
+                                          className="input"
+                                          value={parsedSingleMobileValue.countryCode}
+                                          onChange={(e) =>
+                                            onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                              ...answer,
+                                              value: serializeMobileAnswerValue({
+                                                countryCode: e.target.value,
+                                                number: parsedSingleMobileValue.number,
+                                              }),
+                                            })
+                                          }
+                                          disabled={isNotApplicable}
+                                        >
+                                          {MOBILE_COUNTRY_CODE_OPTIONS.map((countryCodeOption) => (
+                                            <option key={`${fieldStorageKey}-${countryCodeOption}`} value={countryCodeOption}>
+                                              {countryCodeOption}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <input
+                                          className="input"
+                                          type="tel"
+                                          value={parsedSingleMobileValue.number}
+                                          onChange={(e) =>
+                                            onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+                                              ...answer,
+                                              value: serializeMobileAnswerValue({
+                                                countryCode: parsedSingleMobileValue.countryCode,
+                                                number: e.target.value,
+                                              }),
+                                            })
+                                          }
+                                          required={field.required && !isNotApplicable}
+                                          disabled={isNotApplicable}
+                                        />
+                                      </div>
                                     ) : (
                                       <input
                                         className="input"
@@ -2054,6 +2626,7 @@ function OrdersPageContent() {
                                             value: normalizeAnswerValue(field, e.target.value),
                                           })
                                         }
+                                        min={field.fieldType === "date" ? resolveMinDateConstraint(item, serviceForm, field) : undefined}
                                         minLength={typeof field.minLength === "number" ? field.minLength : undefined}
                                         maxLength={typeof field.maxLength === "number" ? field.maxLength : undefined}
                                         required={field.required && !isNotApplicable}
