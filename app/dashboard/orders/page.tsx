@@ -51,6 +51,29 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/png",
 ]);
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
+const DROPDOWN_DEFAULT_OPTION_LABEL = "Select";
+const DROPDOWN_DEFAULT_OPTION_VALUES = new Set(["", "select", "select an option"]);
+
+function isDefaultDropdownOptionValue(rawValue: string, allowedOptions?: string[]) {
+  const normalizedValue = rawValue.trim();
+  if (!normalizedValue) {
+    return true;
+  }
+
+  const normalizedLower = normalizedValue.toLowerCase();
+  if (!DROPDOWN_DEFAULT_OPTION_VALUES.has(normalizedLower)) {
+    return false;
+  }
+
+  if (!Array.isArray(allowedOptions) || allowedOptions.length === 0) {
+    return true;
+  }
+
+  return !allowedOptions.some(
+    (option) => option.trim().toLowerCase() === normalizedLower,
+  );
+}
+
 function renderQuestionIcon(iconKey?: string) {
   const normalized = iconKey?.trim().toLowerCase() ?? "";
 
@@ -572,6 +595,36 @@ function OrdersPageContent() {
     });
   }
 
+  function clearPersonalDetailsCopiedFieldValue(
+    item: RequestItem,
+    serviceForm: RequestServiceForm,
+    fieldStorageKey: string,
+    answer: DraftAnswer,
+    entryIndex?: number,
+  ) {
+    if (typeof entryIndex === "number") {
+      const nextValues = parseRepeatableAnswerValues(answer.value);
+      while (nextValues.length <= entryIndex) {
+        nextValues.push("");
+      }
+
+      nextValues[entryIndex] = "";
+
+      onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+        ...answer,
+        notApplicable: false,
+        value: serializeRepeatableAnswerValues(nextValues),
+      });
+      return;
+    }
+
+    onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+      ...answer,
+      notApplicable: false,
+      value: "",
+    });
+  }
+
   function renderPersonalDetailsCopyCheckbox(params: {
     item: RequestItem;
     serviceForm: RequestServiceForm;
@@ -644,7 +697,16 @@ function OrdersPageContent() {
                   copyValue,
                   entryIndex,
                 );
+                return;
               }
+
+              clearPersonalDetailsCopiedFieldValue(
+                item,
+                serviceForm,
+                fieldStorageKey,
+                answer,
+                entryIndex,
+              );
             }}
           />
           Use value from Personal Details: {sourceField?.question || sourceFieldKey}
@@ -830,6 +892,8 @@ function OrdersPageContent() {
     setMessage("");
     setSubmittingRequestId(item._id);
 
+    let dropdownValidationError = "";
+
     const responses = item.serviceForms.map((serviceForm) => ({
       serviceId: serviceForm.serviceId,
       serviceEntryCount: serviceForm.allowMultipleEntries
@@ -848,6 +912,10 @@ function OrdersPageContent() {
           answer.notApplicableText?.trim() ||
           "Not Applicable";
         const usesRepeatableMode = supportsRepeatable(field, serviceAllowsMultipleEntries);
+        const normalizedSingleValue = normalizeAnswerValue(field, answer.value);
+        const isDropdownWithDefaultSelection =
+          field.fieldType === "dropdown" &&
+          isDefaultDropdownOptionValue(normalizedSingleValue, field.dropdownOptions);
         const normalizedRepeatableValues = parseRepeatableAnswerValues(answer.value)
           .map((entry) => {
             const trimmedEntry = entry.trim();
@@ -859,16 +927,37 @@ function OrdersPageContent() {
               return resolvedNotApplicableText;
             }
 
-            return normalizeAnswerValue(field, entry).trim();
+            const normalizedEntry = normalizeAnswerValue(field, entry).trim();
+            if (
+              field.fieldType === "dropdown" &&
+              isDefaultDropdownOptionValue(normalizedEntry, field.dropdownOptions)
+            ) {
+              return "";
+            }
+
+            return normalizedEntry;
           })
           .filter(Boolean);
+
+        if (!dropdownValidationError && field.fieldType === "dropdown" && field.required) {
+          if (usesRepeatableMode) {
+            if (normalizedRepeatableValues.length === 0) {
+              dropdownValidationError = `${field.question} is required. Please select an option.`;
+            }
+          } else if (!isNotApplicable && isDropdownWithDefaultSelection) {
+            dropdownValidationError = `${field.question} is required. Please select an option.`;
+          }
+        }
+
         const hasRepeatableNotApplicableEntry =
           usesRepeatableMode &&
           Boolean(field.allowNotApplicable) &&
           normalizedRepeatableValues.some((entry) => entry === resolvedNotApplicableText);
         const normalizedValue = usesRepeatableMode
           ? serializeRepeatableAnswerValues(normalizedRepeatableValues)
-          : normalizeAnswerValue(field, answer.value);
+          : isDropdownWithDefaultSelection
+            ? ""
+            : normalizedSingleValue;
 
         return {
           fieldKey: fieldStorageKey,
@@ -887,6 +976,12 @@ function OrdersPageContent() {
         };
       }),
     }));
+
+    if (dropdownValidationError) {
+      setSubmittingRequestId("");
+      setMessage(dropdownValidationError);
+      return;
+    }
 
     const res = await fetch("/api/requests", {
       method: "PATCH",
@@ -1376,7 +1471,7 @@ function OrdersPageContent() {
                                                 required={field.required && !isEntryNotApplicable}
                                                 disabled={isEntryNotApplicable}
                                               >
-                                                <option value="">Select an option</option>
+                                                <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
                                                 {(field.dropdownOptions ?? []).map((option, optionIndex) => (
                                                   <option key={`${fieldStorageKey}-${serviceEntryIndex}-${optionIndex}`} value={option}>
                                                     {option}
@@ -1795,7 +1890,7 @@ function OrdersPageContent() {
                                                 required={field.required && !isNotApplicable}
                                                 disabled={isNotApplicable}
                                               >
-                                                <option value="">Select an option</option>
+                                                <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
                                                 {(field.dropdownOptions ?? []).map((option, optionIndex) => (
                                                   <option key={`${fieldStorageKey}-${entryIndex}-${optionIndex}`} value={option}>
                                                     {option}
@@ -1941,7 +2036,7 @@ function OrdersPageContent() {
                                         required={field.required && !isNotApplicable}
                                         disabled={isNotApplicable}
                                       >
-                                        <option value="">Select an option</option>
+                                        <option value="">{DROPDOWN_DEFAULT_OPTION_LABEL}</option>
                                         {(field.dropdownOptions ?? []).map((option, optionIndex) => (
                                           <option key={`${fieldStorageKey}-${optionIndex}`} value={option}>
                                             {option}

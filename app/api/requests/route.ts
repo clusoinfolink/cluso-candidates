@@ -16,7 +16,10 @@ const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_QUESTION_ICON_KEY = "diary";
 const SERVICE_COUNTRY_FIELD_KEY = "system_service_country";
 const SERVICE_COUNTRY_FIELD_QUESTION =
-  "Select verification country for this service";
+  "Country";
+const LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS = new Set([
+  "select verification country for this service",
+]);
 const DEFAULT_SERVICE_COUNTRY_OPTIONS = [
   "Afghanistan",
   "Armenia",
@@ -399,6 +402,24 @@ function parseRepeatableValues(rawValue: string) {
   }
 
   return [rawValue];
+}
+
+function isDefaultDropdownOptionValue(rawValue: string, allowedOptions?: string[]) {
+  const normalizedValue = rawValue.trim();
+  if (!normalizedValue) {
+    return true;
+  }
+
+  const normalized = normalizedValue.toLowerCase();
+  if (normalized !== "select" && normalized !== "select an option") {
+    return false;
+  }
+
+  if (!Array.isArray(allowedOptions) || allowedOptions.length === 0) {
+    return true;
+  }
+
+  return !allowedOptions.some((option) => option.trim().toLowerCase() === normalized);
 }
 
 function normalizeServiceEntryCount(value: unknown) {
@@ -811,15 +832,15 @@ function ensureServiceCountrySystemField(
 function extractCountrySelectionsFromAnswers(
   answers: CandidateServiceResponseForPricing["answers"],
 ) {
-  const normalizedCountryQuestion = SERVICE_COUNTRY_FIELD_QUESTION.toLowerCase();
-
   const countryAnswer = answers.find((answer) => {
     const normalizedFieldKey = normalizeCountryName(answer.fieldKey);
     if (normalizedFieldKey === SERVICE_COUNTRY_FIELD_KEY) {
       return true;
     }
 
-    return normalizeCountryName(answer.question).toLowerCase() === normalizedCountryQuestion;
+    // Fallback for older stored answers that may not include the system field key.
+    const normalizedQuestion = normalizeCountryName(answer.question).toLowerCase();
+    return LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS.has(normalizedQuestion);
   });
 
   if (!countryAnswer || countryAnswer.notApplicable) {
@@ -1515,6 +1536,11 @@ export async function PATCH(req: NextRequest) {
       const normalizedValue = applyAnswerFormatting(value, field);
 
       const trimmedValue = normalizedValue.trim();
+      const isDropdownWithDefaultSelection =
+        field.fieldType === "dropdown" &&
+        isDefaultDropdownOptionValue(trimmedValue, field.dropdownOptions);
+      const normalizedTrimmedValue = isDropdownWithDefaultSelection ? "" : trimmedValue;
+      const persistedValue = isDropdownWithDefaultSelection ? "" : normalizedValue;
 
       if (isNotApplicable) {
         return {
@@ -1574,6 +1600,11 @@ export async function PATCH(req: NextRequest) {
         const parsedValues = parseRepeatableValues(value);
         const normalizedValues = parsedValues
           .map((entry) => applyAnswerFormatting(entry, field).trim())
+          .map((entry) =>
+            field.fieldType === "dropdown" && isDefaultDropdownOptionValue(entry, field.dropdownOptions)
+              ? ""
+              : entry,
+          )
           .filter(Boolean);
         const isNotApplicableRepeatableEntry = (entry: string) =>
           allowNotApplicable && entry === notApplicableText;
@@ -1671,20 +1702,20 @@ export async function PATCH(req: NextRequest) {
         };
       }
 
-      if (isRequired && !trimmedValue && !validationError) {
+      if (isRequired && !normalizedTrimmedValue && !validationError) {
         validationError = `${field.question} is required.`;
       }
 
-      if (field.fieldType === "number" && trimmedValue) {
-        const parsedNumber = Number(trimmedValue);
+      if (field.fieldType === "number" && normalizedTrimmedValue) {
+        const parsedNumber = Number(normalizedTrimmedValue);
         if (Number.isNaN(parsedNumber) && !validationError) {
           validationError = `${field.question} must be a valid number.`;
         }
       }
 
-      if (field.fieldType === "date" && trimmedValue) {
-        const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(trimmedValue);
-        const dateValue = new Date(`${trimmedValue}T00:00:00.000Z`);
+      if (field.fieldType === "date" && normalizedTrimmedValue) {
+        const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(normalizedTrimmedValue);
+        const dateValue = new Date(`${normalizedTrimmedValue}T00:00:00.000Z`);
         if ((!isIsoDate || Number.isNaN(dateValue.getTime())) && !validationError) {
           validationError = `${field.question} must be a valid date.`;
         }
@@ -1692,15 +1723,18 @@ export async function PATCH(req: NextRequest) {
 
       if (
         field.fieldType === "dropdown" &&
-        trimmedValue &&
-        !field.dropdownOptions.includes(trimmedValue) &&
+        normalizedTrimmedValue &&
+        !field.dropdownOptions.includes(normalizedTrimmedValue) &&
         !validationError
       ) {
         validationError = `${field.question} must match one of the configured options.`;
       }
 
-      if (hasLengthConstraints && trimmedValue) {
-        const comparableLengthValue = resolveLengthComparableValue(trimmedValue, field.fieldType);
+      if (hasLengthConstraints && normalizedTrimmedValue) {
+        const comparableLengthValue = resolveLengthComparableValue(
+          normalizedTrimmedValue,
+          field.fieldType,
+        );
         const lengthUnit = resolveLengthUnit(field.fieldType);
 
         if (
@@ -1728,7 +1762,7 @@ export async function PATCH(req: NextRequest) {
         repeatable: false,
         notApplicable: false,
         notApplicableText: "",
-        value: normalizedValue,
+        value: persistedValue,
         fileName: "",
         fileMimeType: "",
         fileSize: null,
