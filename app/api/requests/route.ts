@@ -210,11 +210,31 @@ const submitSchema = z.object({
           fileMimeType: z.string().optional().default(""),
           fileSize: z.number().nullable().optional().default(null),
           fileData: z.string().optional().default(""),
+          entryFiles: z
+            .array(
+              z.object({
+                entryIndex: z.number().int().min(1),
+                fileName: z.string().optional().default(""),
+                fileMimeType: z.string().optional().default(""),
+                fileSize: z.number().nullable().optional().default(null),
+                fileData: z.string().optional().default(""),
+              }),
+            )
+            .optional()
+            .default([]),
         }),
       ),
     }),
   ),
 });
+
+type SubmittedEntryFilePayload = {
+  entryIndex: number;
+  fileName: string;
+  fileMimeType: string;
+  fileSize: number | null;
+  fileData: string;
+};
 
 type SubmittedAnswerPayload = {
   value: string;
@@ -225,6 +245,7 @@ type SubmittedAnswerPayload = {
   fileMimeType: string;
   fileSize: number | null;
   fileData: string;
+  entryFiles: SubmittedEntryFilePayload[];
 };
 
 type SubmittedServicePayload = {
@@ -1334,6 +1355,18 @@ export async function GET(req: NextRequest) {
           fileMimeType: answer.fileMimeType ?? "",
           fileSize: answer.fileSize ?? null,
           fileData: answer.fileData ?? "",
+          entryFiles: Array.isArray(answer.entryFiles)
+            ? answer.entryFiles
+                .map((entryFile) => ({
+                  entryIndex: normalizeServiceEntryCount(entryFile.entryIndex),
+                  fileName: entryFile.fileName ?? "",
+                  fileMimeType: entryFile.fileMimeType ?? "",
+                  fileSize: entryFile.fileSize ?? null,
+                  fileData: entryFile.fileData ?? "",
+                }))
+                .filter((entryFile) => Boolean(entryFile.fileData.trim()))
+                .sort((first, second) => first.entryIndex - second.entryIndex)
+            : [],
         })),
       })),
       customerRejectedFields: (item.customerRejectedFields ?? []).map((field, fieldIndex) => ({
@@ -1496,6 +1529,19 @@ export async function PATCH(req: NextRequest) {
         for (const answer of serviceResponse.answers) {
           const normalizedQuestion = answer.question.trim();
           const normalizedFieldKey = answer.fieldKey?.trim() ?? "";
+          const entryFilesByIndex = new Map<number, SubmittedEntryFilePayload>();
+
+          for (const entryFile of answer.entryFiles ?? []) {
+            const entryIndex = normalizeServiceEntryCount(entryFile.entryIndex);
+            entryFilesByIndex.set(entryIndex, {
+              entryIndex,
+              fileName: entryFile.fileName?.trim() ?? "",
+              fileMimeType: entryFile.fileMimeType?.trim().toLowerCase() ?? "",
+              fileSize: entryFile.fileSize ?? null,
+              fileData: entryFile.fileData?.trim() ?? "",
+            });
+          }
+
           const payload = {
             value: answer.value?.trim() ?? "",
             repeatable: Boolean(answer.repeatable),
@@ -1505,6 +1551,9 @@ export async function PATCH(req: NextRequest) {
             fileMimeType: answer.fileMimeType?.trim().toLowerCase() ?? "",
             fileSize: answer.fileSize ?? null,
             fileData: answer.fileData?.trim() ?? "",
+            entryFiles: [...entryFilesByIndex.values()]
+              .filter((entryFile) => Boolean(entryFile.fileData))
+              .sort((first, second) => first.entryIndex - second.entryIndex),
           };
 
           if (normalizedFieldKey) {
@@ -1632,12 +1681,27 @@ export async function PATCH(req: NextRequest) {
         fileMimeType: "",
         fileSize: null,
         fileData: "",
+        entryFiles: [],
       };
       const value = incomingAnswer.value ?? "";
       const fileName = incomingAnswer.fileName ?? "";
       const fileMimeType = incomingAnswer.fileMimeType ?? "";
       const fileSize = incomingAnswer.fileSize;
       const fileData = incomingAnswer.fileData ?? "";
+      const entryFiles = (incomingAnswer.entryFiles ?? [])
+        .map((entryFile) => ({
+          entryIndex: normalizeServiceEntryCount(entryFile.entryIndex),
+          fileName: entryFile.fileName ?? "",
+          fileMimeType: entryFile.fileMimeType ?? "",
+          fileSize: entryFile.fileSize ?? null,
+          fileData: entryFile.fileData ?? "",
+        }))
+        .filter(
+          (entryFile) =>
+            entryFile.entryIndex <= serviceEntryCount &&
+            Boolean(entryFile.fileData.trim()),
+        )
+        .sort((first, second) => first.entryIndex - second.entryIndex);
       const isRequired = Boolean(field.required);
       const isRepeatable =
         field.fieldType !== "file" &&
@@ -1756,14 +1820,11 @@ export async function PATCH(req: NextRequest) {
           fileMimeType: "",
           fileSize: null,
           fileData: "",
+          entryFiles: [],
         };
       }
 
       if (field.fieldType === "file") {
-        if (isRequired && !fileData && !validationError) {
-          validationError = `${field.question} is required.`;
-        }
-
         if (fileData) {
           if (!ALLOWED_UPLOAD_MIME_TYPES.has(fileMimeType) && !validationError) {
             validationError = `${field.question}: only PDF, JPG, and PNG are allowed.`;
@@ -1780,6 +1841,54 @@ export async function PATCH(req: NextRequest) {
           }
         }
 
+        const entryFileByIndex = new Map<number, SubmittedEntryFilePayload>();
+        for (const entryFile of entryFiles) {
+          const normalizedEntryMimeType = entryFile.fileMimeType.trim().toLowerCase();
+          if (
+            !ALLOWED_UPLOAD_MIME_TYPES.has(normalizedEntryMimeType) &&
+            !validationError
+          ) {
+            validationError = `${field.question}: only PDF, JPG, and PNG are allowed.`;
+          }
+
+          if (
+            (typeof entryFile.fileSize !== "number" ||
+              !Number.isFinite(entryFile.fileSize) ||
+              entryFile.fileSize <= 0 ||
+              entryFile.fileSize > MAX_UPLOAD_SIZE_BYTES) &&
+            !validationError
+          ) {
+            validationError = `${field.question}: file size must be 5MB or less.`;
+          }
+
+          entryFileByIndex.set(entryFile.entryIndex, {
+            entryIndex: entryFile.entryIndex,
+            fileName: entryFile.fileName,
+            fileMimeType: normalizedEntryMimeType,
+            fileSize: entryFile.fileSize,
+            fileData: entryFile.fileData,
+          });
+        }
+
+        if (isRequired && !fileData && !validationError) {
+          if (!serviceAllowsMultipleEntries) {
+            if (!entryFileByIndex.has(1)) {
+              validationError = `${field.question} is required.`;
+            }
+          } else {
+            for (let entryIndex = 1; entryIndex <= serviceEntryCount; entryIndex += 1) {
+              if (!entryFileByIndex.has(entryIndex)) {
+                validationError = `${field.question} is required for entry ${entryIndex}.`;
+                break;
+              }
+            }
+          }
+        }
+
+        const normalizedEntryFiles = [...entryFileByIndex.values()].sort(
+          (first, second) => first.entryIndex - second.entryIndex,
+        );
+
         return {
           fieldKey: field.fieldKey,
           question: field.question,
@@ -1793,6 +1902,7 @@ export async function PATCH(req: NextRequest) {
           fileMimeType,
           fileSize,
           fileData,
+          entryFiles: normalizedEntryFiles,
         };
       }
 
@@ -1957,6 +2067,7 @@ export async function PATCH(req: NextRequest) {
           fileMimeType: "",
           fileSize: null,
           fileData: "",
+          entryFiles: [],
         };
       }
 
@@ -2048,6 +2159,7 @@ export async function PATCH(req: NextRequest) {
         fileMimeType: "",
         fileSize: null,
         fileData: "",
+        entryFiles: [],
       };
     });
 

@@ -171,6 +171,13 @@ export type RequestItem = {
       fileMimeType?: string;
       fileSize?: number | null;
       fileData?: string;
+      entryFiles?: Array<{
+        entryIndex: number;
+        fileName?: string;
+        fileMimeType?: string;
+        fileSize?: number | null;
+        fileData?: string;
+      }>;
     }>;
   }>;
   createdAt: string;

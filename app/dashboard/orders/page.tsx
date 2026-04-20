@@ -44,6 +44,14 @@ import {
 } from "@/lib/locationHierarchy";
 import { RequestItem, ServiceFormField } from "@/lib/types";
 
+type DraftEntryFile = {
+  entryIndex: number;
+  fileName: string;
+  fileMimeType: string;
+  fileSize: number | null;
+  fileData: string;
+};
+
 type DraftAnswer = {
   value: string;
   notApplicable: boolean;
@@ -52,6 +60,7 @@ type DraftAnswer = {
   fileMimeType: string;
   fileSize: number | null;
   fileData: string;
+  entryFiles: DraftEntryFile[];
 };
 
 type RequestServiceForm = RequestItem["serviceForms"][number];
@@ -231,6 +240,91 @@ function createEmptyDraftAnswer(): DraftAnswer {
     fileMimeType: "",
     fileSize: null,
     fileData: "",
+    entryFiles: [],
+  };
+}
+
+function normalizeDraftEntryFiles(
+  rawEntryFiles: Array<{
+    entryIndex?: number;
+    fileName?: string;
+    fileMimeType?: string;
+    fileSize?: number | null;
+    fileData?: string;
+  }> | null | undefined,
+) {
+  if (!Array.isArray(rawEntryFiles) || rawEntryFiles.length === 0) {
+    return [] as DraftEntryFile[];
+  }
+
+  const byIndex = new Map<number, DraftEntryFile>();
+  for (const rawFile of rawEntryFiles) {
+    const normalizedIndex = Math.max(1, Math.floor(Number(rawFile.entryIndex ?? 0)));
+    if (!Number.isFinite(normalizedIndex)) {
+      continue;
+    }
+
+    const fileData = (rawFile.fileData ?? "").trim();
+    if (!fileData) {
+      continue;
+    }
+
+    const fileSize =
+      typeof rawFile.fileSize === "number" && Number.isFinite(rawFile.fileSize) && rawFile.fileSize > 0
+        ? rawFile.fileSize
+        : null;
+
+    byIndex.set(normalizedIndex, {
+      entryIndex: normalizedIndex,
+      fileName: (rawFile.fileName ?? "").trim(),
+      fileMimeType: (rawFile.fileMimeType ?? "").trim().toLowerCase(),
+      fileSize,
+      fileData,
+    });
+  }
+
+  return Array.from(byIndex.values()).sort((first, second) => first.entryIndex - second.entryIndex);
+}
+
+function resolveEntryFileForServiceEntry(answer: DraftAnswer, serviceEntryNumber: number) {
+  if (!Number.isFinite(serviceEntryNumber) || serviceEntryNumber <= 0) {
+    return null;
+  }
+
+  return (
+    normalizeDraftEntryFiles(answer.entryFiles).find(
+      (entryFile) => entryFile.entryIndex === Math.floor(serviceEntryNumber),
+    ) ?? null
+  );
+}
+
+function withUpdatedEntryFile(
+  answer: DraftAnswer,
+  serviceEntryNumber: number,
+  entryFile: Omit<DraftEntryFile, "entryIndex"> | null,
+) {
+  const normalizedEntryIndex = Math.floor(serviceEntryNumber);
+  if (!Number.isFinite(normalizedEntryIndex) || normalizedEntryIndex <= 0) {
+    return answer;
+  }
+
+  const existingEntryFiles = normalizeDraftEntryFiles(answer.entryFiles).filter(
+    (candidateEntryFile) => candidateEntryFile.entryIndex !== normalizedEntryIndex,
+  );
+
+  if (entryFile?.fileData) {
+    existingEntryFiles.push({
+      entryIndex: normalizedEntryIndex,
+      fileName: entryFile.fileName,
+      fileMimeType: entryFile.fileMimeType,
+      fileSize: entryFile.fileSize,
+      fileData: entryFile.fileData,
+    });
+  }
+
+  return {
+    ...answer,
+    entryFiles: normalizeDraftEntryFiles(existingEntryFiles),
   };
 }
 
@@ -513,6 +607,17 @@ function OrdersPageContent() {
       fileMimeType: existingAnswer?.fileMimeType ?? "",
       fileSize: existingAnswer?.fileSize ?? null,
       fileData: existingAnswer?.fileData ?? "",
+      entryFiles: normalizeDraftEntryFiles(
+        Array.isArray(existingAnswer?.entryFiles)
+          ? existingAnswer.entryFiles.map((entryFile) => ({
+              entryIndex: Number(entryFile.entryIndex ?? 0),
+              fileName: entryFile.fileName ?? "",
+              fileMimeType: entryFile.fileMimeType ?? "",
+              fileSize: entryFile.fileSize ?? null,
+              fileData: entryFile.fileData ?? "",
+            }))
+          : [],
+      ),
     };
   }, [formDrafts]);
 
@@ -528,7 +633,10 @@ function OrdersPageContent() {
         ...(prev[requestId] ?? {}),
         [serviceId]: {
           ...(prev[requestId]?.[serviceId] ?? {}),
-          [fieldKey]: next,
+            [fieldKey]: {
+              ...next,
+              entryFiles: normalizeDraftEntryFiles(next.entryFiles),
+            },
         },
       },
     }));
@@ -993,6 +1101,19 @@ function OrdersPageContent() {
 
     for (const field of serviceForm.fields) {
       if (field.fieldType === "file") {
+        const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+        const maxFileEntryIndex = answer.entryFiles.reduce((maxIndex, entryFile) => {
+          if (!entryFile.fileData) {
+            return maxIndex;
+          }
+
+          return Math.max(maxIndex, entryFile.entryIndex);
+        }, 0);
+
+        if (maxFileEntryIndex > maxEntries) {
+          maxEntries = maxFileEntryIndex;
+        }
+
         continue;
       }
 
@@ -1037,14 +1158,24 @@ function OrdersPageContent() {
     if (currentCount <= 1) {
       return;
     }
+    const nextCount = currentCount - 1;
 
     for (const field of serviceForm.fields) {
+      const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
+
       if (field.fieldType === "file") {
+        const nextEntryFiles = answer.entryFiles.filter(
+          (entryFile) => entryFile.entryIndex <= nextCount,
+        );
+
+        onAnswerChange(item._id, serviceForm.serviceId, fieldStorageKey, {
+          ...answer,
+          entryFiles: nextEntryFiles,
+        });
         continue;
       }
 
-      const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
-      const answer = getDraftAnswer(item, serviceForm.serviceId, field);
       const nextValues = parseRepeatableAnswerValues(answer.value);
       if (nextValues.length > 1) {
         nextValues.pop();
@@ -1159,9 +1290,27 @@ function OrdersPageContent() {
     serviceId: string,
     fieldKey: string,
     file: File | null,
+    answer: DraftAnswer,
+    serviceEntryNumber?: number,
   ) {
     if (!file) {
-      onAnswerChange(requestId, serviceId, fieldKey, createEmptyDraftAnswer());
+      if (typeof serviceEntryNumber === "number") {
+        onAnswerChange(
+          requestId,
+          serviceId,
+          fieldKey,
+          withUpdatedEntryFile(answer, serviceEntryNumber, null),
+        );
+      } else {
+        onAnswerChange(requestId, serviceId, fieldKey, {
+          ...answer,
+          value: "",
+          fileName: "",
+          fileMimeType: "",
+          fileSize: null,
+          fileData: "",
+        });
+      }
       return;
     }
 
@@ -1178,15 +1327,30 @@ function OrdersPageContent() {
 
     try {
       const fileData = await readFileAsDataUrl(file);
-      onAnswerChange(requestId, serviceId, fieldKey, {
-        value: file.name,
-        notApplicable: false,
-        notApplicableText: "",
-        fileName: file.name,
-        fileMimeType: mimeType,
-        fileSize: file.size,
-        fileData,
-      });
+      if (typeof serviceEntryNumber === "number") {
+        onAnswerChange(
+          requestId,
+          serviceId,
+          fieldKey,
+          withUpdatedEntryFile(answer, serviceEntryNumber, {
+            fileName: file.name,
+            fileMimeType: mimeType,
+            fileSize: file.size,
+            fileData,
+          }),
+        );
+      } else {
+        onAnswerChange(requestId, serviceId, fieldKey, {
+          ...answer,
+          value: file.name,
+          notApplicable: false,
+          notApplicableText: "",
+          fileName: file.name,
+          fileMimeType: mimeType,
+          fileSize: file.size,
+          fileData,
+        });
+      }
     } catch {
       setMessage("Could not read selected file. Please try again.");
     }
@@ -1290,6 +1454,7 @@ function OrdersPageContent() {
           usesRepeatableMode &&
           Boolean(field.allowNotApplicable) &&
           normalizedRepeatableValues.some((entry) => entry === resolvedNotApplicableText);
+        const normalizedEntryFiles = normalizeDraftEntryFiles(answer.entryFiles);
         const normalizedValue = usesRepeatableMode
           ? serializeRepeatableAnswerValues(normalizedRepeatableValues)
           : isDropdownWithDefaultSelection
@@ -1310,6 +1475,7 @@ function OrdersPageContent() {
           fileMimeType: answer.fileMimeType,
           fileSize: answer.fileSize,
           fileData: isNotApplicable ? "" : answer.fileData,
+          entryFiles: isNotApplicable ? [] : normalizedEntryFiles,
         };
       }),
     }));
@@ -1596,13 +1762,16 @@ function OrdersPageContent() {
                                       const constraintHint = getConstraintHint(field);
 
                                       if (field.fieldType === "file") {
-                                        if (serviceEntryIndex > 0) {
-                                          return null;
-                                        }
+                                        const serviceEntryNumber = serviceEntryIndex + 1;
+                                        const entryFile = resolveEntryFileForServiceEntry(
+                                          answer,
+                                          serviceEntryNumber,
+                                        );
+                                        const showSharedUploader = serviceEntryIndex === 0;
 
                                         return (
                                           <div
-                                            key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
+                                            key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryNumber}`}
                                             style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
                                           >
                                             <label className="label">
@@ -1612,36 +1781,94 @@ function OrdersPageContent() {
                                                 isRejectedField={isRejectedField}
                                               />
                                             </label>
-                                            <input
-                                              className="input"
-                                              type="file"
-                                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                                              onChange={(e) =>
-                                                onFileChange(
-                                                  item._id,
-                                                  serviceForm.serviceId,
-                                                  fieldStorageKey,
-                                                  e.target.files?.[0] ?? null,
-                                                )
-                                              }
-                                              required={field.required && !answer.fileData}
-                                            />
-                                            <p style={{ margin: "0.35rem 0 0", color: "#6C757D", fontSize: "0.86rem" }}>
-                                              PDF, JPG, PNG only. Maximum size 5MB.
-                                            </p>
-                                            {getServiceLevelEntryCount(item, serviceForm) > 1 ? (
-                                              <p style={{ margin: "0.2rem 0 0", color: "#6C757D", fontSize: "0.82rem" }}>
-                                                This uploaded file is shared across all whole-service entries.
-                                              </p>
-                                            ) : null}
-                                            {answer.fileData ? (
-                                              <div style={{ marginTop: "0.35rem", fontSize: "0.88rem" }}>
-                                                <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#4A90E2", fontWeight: 700 }}>
-                                                  {answer.fileName || "View uploaded file"}
-                                                </a>
-                                                {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
+                                            <div style={{ display: "grid", gap: "0.7rem" }}>
+                                              {showSharedUploader ? (
+                                                <div
+                                                  style={{
+                                                    border: "1px solid #DBEAFE",
+                                                    borderRadius: "10px",
+                                                    background: "#EFF6FF",
+                                                    padding: "0.6rem",
+                                                    display: "grid",
+                                                    gap: "0.45rem",
+                                                  }}
+                                                >
+                                                  <p style={{ margin: 0, color: "#1D4ED8", fontSize: "0.82rem", fontWeight: 700 }}>
+                                                    Shared attachment for all entries
+                                                  </p>
+                                                  <input
+                                                    className="input"
+                                                    type="file"
+                                                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                                    onChange={(e) =>
+                                                      onFileChange(
+                                                        item._id,
+                                                        serviceForm.serviceId,
+                                                        fieldStorageKey,
+                                                        e.target.files?.[0] ?? null,
+                                                        answer,
+                                                      )
+                                                    }
+                                                  />
+                                                  <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                                    PDF, JPG, PNG only. Maximum size 5MB.
+                                                  </p>
+                                                  {answer.fileData ? (
+                                                    <div style={{ marginTop: "0.15rem", fontSize: "0.86rem" }}>
+                                                      <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#2563EB", fontWeight: 700 }}>
+                                                        {answer.fileName || "View shared file"}
+                                                      </a>
+                                                      {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
+                                                    </div>
+                                                  ) : null}
+                                                </div>
+                                              ) : null}
+
+                                              <div
+                                                style={{
+                                                  border: "1px solid #E2E8F0",
+                                                  borderRadius: "10px",
+                                                  background: "#FFFFFF",
+                                                  padding: "0.6rem",
+                                                  display: "grid",
+                                                  gap: "0.45rem",
+                                                }}
+                                              >
+                                                <p style={{ margin: 0, color: "#334155", fontSize: "0.82rem", fontWeight: 700 }}>
+                                                  Entry {serviceEntryNumber} attachment
+                                                </p>
+                                                <input
+                                                  className="input"
+                                                  type="file"
+                                                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                                                  onChange={(e) =>
+                                                    onFileChange(
+                                                      item._id,
+                                                      serviceForm.serviceId,
+                                                      fieldStorageKey,
+                                                      e.target.files?.[0] ?? null,
+                                                      answer,
+                                                      serviceEntryNumber,
+                                                    )
+                                                  }
+                                                />
+                                                <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
+                                                  Upload only for this entry. If empty, shared file is used.
+                                                </p>
+                                                {entryFile?.fileData ? (
+                                                  <div style={{ marginTop: "0.15rem", fontSize: "0.86rem" }}>
+                                                    <a href={entryFile.fileData} target="_blank" rel="noreferrer" style={{ color: "#2563EB", fontWeight: 700 }}>
+                                                      {entryFile.fileName || `Entry ${serviceEntryNumber} file`}
+                                                    </a>
+                                                    {entryFile.fileSize ? ` (${formatFileSize(entryFile.fileSize)})` : ""}
+                                                  </div>
+                                                ) : answer.fileData ? (
+                                                  <p style={{ margin: "0.15rem 0 0", color: "#1E40AF", fontSize: "0.8rem", fontWeight: 600 }}>
+                                                    Using shared file fallback for this entry.
+                                                  </p>
+                                                ) : null}
                                               </div>
-                                            ) : null}
+                                            </div>
                                           </div>
                                         );
                                       }
@@ -2010,6 +2237,7 @@ function OrdersPageContent() {
                                         fileMimeType: "",
                                         fileSize: null,
                                         fileData: "",
+                                        entryFiles: [],
                                       });
                                     }}
                                   />
@@ -2207,6 +2435,7 @@ function OrdersPageContent() {
                                           serviceForm.serviceId,
                                           fieldStorageKey,
                                           e.target.files?.[0] ?? null,
+                                          answer,
                                         )
                                       }
                                       required={field.required && !answer.fileData && !isNotApplicable}
