@@ -42,7 +42,7 @@ const LEGACY_SERVICE_COUNTRY_FIELD_QUESTIONS = new Set([
   "select verification country for this service",
 ]);
 const DEFAULT_SERVICE_COUNTRY_OPTIONS = getAllCountryOptions();
-const SERVICE_LOCATION_FIELD_TYPES: ServiceLocationFieldType[] = [
+const SERVICE_LOCATION_FIELD_TYPES: SystemLocationFieldType[] = [
   "country",
   "state",
   "city",
@@ -819,7 +819,7 @@ function ensureSystemLocationFields(
       : [...DEFAULT_SERVICE_COUNTRY_OPTIONS];
 
   const nonSystemFields: NormalizedServiceFormField[] = [];
-  const firstSystemFieldByType = new Map<ServiceLocationFieldType, NormalizedServiceFormField>();
+  const firstSystemFieldByType = new Map<SystemLocationFieldType, NormalizedServiceFormField>();
 
   for (const field of fields) {
     const systemFieldType = resolveSystemLocationTypeFromField(field);
