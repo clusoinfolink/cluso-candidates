@@ -44,6 +44,39 @@ function formatServiceLabelWithHistory(service: RequestItem["selectedServices"][
   return `${service.serviceName} ${historyWindow}`;
 }
 
+const PERSONAL_DETAILS_SERVICE_NAME = "personal details";
+
+function isPersonalDetailsServiceName(serviceName: string) {
+  const normalizedServiceName = serviceName.trim().toLowerCase();
+  return (
+    normalizedServiceName === PERSONAL_DETAILS_SERVICE_NAME ||
+    normalizedServiceName.includes("personal detail")
+  );
+}
+
+type CandidateServiceResponse = RequestItem["candidateFormResponses"][number];
+
+function sortCandidateResponsesForDisplay(
+  responses: CandidateServiceResponse[],
+) {
+  return responses
+    .map((serviceResponse, index) => ({
+      serviceResponse,
+      index,
+      isPersonalDetailsService: isPersonalDetailsServiceName(
+        serviceResponse.serviceName,
+      ),
+    }))
+    .sort((left, right) => {
+      if (left.isPersonalDetailsService === right.isPersonalDetailsService) {
+        return left.index - right.index;
+      }
+
+      return left.isPersonalDetailsService ? -1 : 1;
+    })
+    .map((entry) => entry.serviceResponse);
+}
+
 function RequestsPageContent() {
   const { me, loading, logout } = usePortalSession();
   const searchParams = useSearchParams();
@@ -298,7 +331,9 @@ function RequestsPageContent() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {item.candidateFormResponses.map((serviceResponse) => (
+                      {sortCandidateResponsesForDisplay(
+                        item.candidateFormResponses,
+                      ).map((serviceResponse) => (
                         <div
                           key={`${item._id}-${serviceResponse.serviceId}`}
                           className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg overflow-hidden"
