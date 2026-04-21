@@ -431,23 +431,21 @@ function resolveFieldPreviewWidth(field: ServiceFormField): PreviewFieldWidth {
   return "half";
 }
 
-function getFieldGridColumn(field: ServiceFormField) {
+function getFieldGridColumnClass(field: ServiceFormField) {
   const width = resolveFieldPreviewWidth(field);
   if (width === "third") {
-    return "span 4";
+    return "col-span-12 md:col-span-4";
   }
 
   if (width === "half") {
-    return "span 6";
+    return "col-span-12 md:col-span-6";
   }
 
-  return "span 12";
+  return "col-span-12";
 }
 
 function getFieldRowTemplate(field: ServiceFormField) {
-  return resolveFieldPreviewWidth(field) === "third"
-    ? "minmax(0, 1fr)"
-    : "minmax(210px, 1fr) minmax(260px, 2fr)";
+  return "minmax(0, 1fr)";
 }
 
 function parseRepeatableAnswerValues(rawValue: string) {
@@ -1740,7 +1738,7 @@ function OrdersPageContent() {
                                       const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
                                       const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                                       const labelText = `${field.question}${field.required ? " *" : ""}`;
-                                      const fieldGridColumn = getFieldGridColumn(field);
+                                      const fieldGridColumn = getFieldGridColumnClass(field);
                                       const fieldRowTemplate = getFieldRowTemplate(field);
                                       const fieldRowAlignItems =
                                         resolveFieldPreviewWidth(field) === "third" ? "start" : "center";
@@ -1770,9 +1768,9 @@ function OrdersPageContent() {
                                         const showSharedUploader = serviceEntryIndex === 0;
 
                                         return (
-                                          <div
+                                          <div className={fieldGridColumn}
                                             key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryNumber}`}
-                                            style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                            style={{ ...correctionStyle, }}
                                           >
                                             <label className="label">
                                               <QuestionPrompt
@@ -1939,9 +1937,9 @@ function OrdersPageContent() {
 
                                       if (field.fieldType === "long_text") {
                                         return (
-                                          <div
+                                          <div className={fieldGridColumn}
                                             key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
-                                            style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                            style={{ ...correctionStyle, }}
                                           >
                                             <label className="label">
                                               <QuestionPrompt
@@ -2014,7 +2012,7 @@ function OrdersPageContent() {
                                       const isMobileField = field.fieldType === "mobile";
 
                                       return (
-                                        <div
+                                        <div className={fieldGridColumn}
                                           key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
                                           style={
                                             isRejectedField
@@ -2023,7 +2021,7 @@ function OrdersPageContent() {
                                                   gridTemplateColumns: fieldRowTemplate,
                                                   gap: "0.7rem",
                                                   alignItems: fieldRowAlignItems,
-                                                  gridColumn: fieldGridColumn,
+                                                  
                                                   border: "1px solid #F5C2C7",
                                                   borderRadius: "10px",
                                                   background: "#FFF7F7",
@@ -2034,7 +2032,7 @@ function OrdersPageContent() {
                                                   gridTemplateColumns: fieldRowTemplate,
                                                   gap: "0.7rem",
                                                   alignItems: fieldRowAlignItems,
-                                                  gridColumn: fieldGridColumn,
+                                                  
                                                 }
                                           }
                                         >
@@ -2183,7 +2181,7 @@ function OrdersPageContent() {
                               const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
                               const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                               const labelText = `${field.question}${field.required ? " *" : ""}`;
-                              const fieldGridColumn = getFieldGridColumn(field);
+                              const fieldGridColumn = getFieldGridColumnClass(field);
                               const fieldRowTemplate = getFieldRowTemplate(field);
                               const fieldRowAlignItems =
                                 resolveFieldPreviewWidth(field) === "third" ? "start" : "center";
@@ -2257,9 +2255,9 @@ function OrdersPageContent() {
                                   const repeatableValues = parseRepeatableAnswerValues(answer.value);
 
                                   return (
-                                    <div
+                                    <div className={fieldGridColumn}
                                       key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
-                                      style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                      style={{ ...correctionStyle, }}
                                     >
                                       <label className="label">
                                         <QuestionPrompt
@@ -2271,7 +2269,7 @@ function OrdersPageContent() {
                                       {notApplicableToggle}
                                       <div style={{ display: "grid", gap: "0.55rem" }}>
                                         {repeatableValues.map((entryValue, entryIndex) => (
-                                          <div
+                                          <div className={fieldGridColumn}
                                             key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${entryIndex}`}
                                             style={{
                                               border: "1px solid #DEE2E6",
@@ -2368,9 +2366,9 @@ function OrdersPageContent() {
                                 }
 
                                 return (
-                                  <div
+                                  <div className={fieldGridColumn}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
-                                    style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                    style={{ ...correctionStyle, }}
                                   >
                                     <label className="label">
                                       <QuestionPrompt
@@ -2413,9 +2411,9 @@ function OrdersPageContent() {
 
                               if (field.fieldType === "file") {
                                 return (
-                                  <div
+                                  <div className={fieldGridColumn}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
-                                    style={{ ...correctionStyle, gridColumn: fieldGridColumn }}
+                                    style={{ ...correctionStyle, }}
                                   >
                                     <label className="label">
                                       <QuestionPrompt
@@ -2489,7 +2487,7 @@ function OrdersPageContent() {
                                 const repeatableValues = parseRepeatableAnswerValues(answer.value);
 
                                 return (
-                                  <div
+                                  <div className={fieldGridColumn}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                     style={
                                       isRejectedField
@@ -2498,7 +2496,7 @@ function OrdersPageContent() {
                                             gridTemplateColumns: fieldRowTemplate,
                                             gap: "0.7rem",
                                             alignItems: "start",
-                                            gridColumn: fieldGridColumn,
+                                            
                                             border: "1px solid #F5C2C7",
                                             borderRadius: "10px",
                                             background: "#FFF7F7",
@@ -2509,7 +2507,7 @@ function OrdersPageContent() {
                                             gridTemplateColumns: fieldRowTemplate,
                                             gap: "0.7rem",
                                             alignItems: "start",
-                                            gridColumn: fieldGridColumn,
+                                            
                                           }
                                     }
                                   >
@@ -2523,7 +2521,7 @@ function OrdersPageContent() {
                                     <div style={{ display: "grid", gap: "0.45rem" }}>
                                       {notApplicableToggle}
                                       {repeatableValues.map((entryValue, entryIndex) => (
-                                        <div
+                                        <div className={fieldGridColumn}
                                           key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${entryIndex}`}
                                           style={{
                                             border: "1px solid #DEE2E6",
@@ -2741,7 +2739,7 @@ function OrdersPageContent() {
                               }
 
                               return (
-                                <div
+                                <div className={fieldGridColumn}
                                   key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                   style={
                                     isRejectedField
@@ -2750,7 +2748,7 @@ function OrdersPageContent() {
                                           gridTemplateColumns: fieldRowTemplate,
                                           gap: "0.7rem",
                                           alignItems: fieldRowAlignItems,
-                                          gridColumn: fieldGridColumn,
+                                          
                                           border: "1px solid #F5C2C7",
                                           borderRadius: "10px",
                                           background: "#FFF7F7",
@@ -2761,7 +2759,7 @@ function OrdersPageContent() {
                                           gridTemplateColumns: fieldRowTemplate,
                                           gap: "0.7rem",
                                           alignItems: fieldRowAlignItems,
-                                          gridColumn: fieldGridColumn,
+                                          
                                         }
                                   }
                                 >
@@ -2921,3 +2919,5 @@ export default function OrdersPage() {
     </Suspense>
   );
 }
+
+
