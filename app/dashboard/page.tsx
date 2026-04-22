@@ -113,9 +113,9 @@ export default function DashboardOverviewPage() {
             <ListChecks size={28} />
             <span>Track Verification</span>
           </Link>
-          <Link href="/dashboard/settings" className="quick-action-card">
+          <Link href="/dashboard/profile" className="quick-action-card">
             <SlidersHorizontal size={28} />
-            <span>Settings</span>
+            <span>Profile</span>
           </Link>
         </div>
       </div>

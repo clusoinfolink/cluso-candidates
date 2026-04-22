@@ -21,6 +21,51 @@ const UserSchema = new Schema(
       ref: "User",
       default: null,
     },
+    mustChangePassword: {
+      type: Boolean,
+      default: undefined,
+    },
+    candidateProfile: {
+      keySkills: {
+        type: [String],
+        default: [],
+      },
+      employment: {
+        type: [
+          {
+            companyName: { type: String, default: "", trim: true },
+            designation: { type: String, default: "", trim: true },
+            city: { type: String, default: "", trim: true },
+            state: { type: String, default: "", trim: true },
+            country: { type: String, default: "", trim: true },
+            startDate: { type: String, default: "", trim: true },
+            endDate: { type: String, default: "", trim: true },
+            currentlyWorking: { type: Boolean, default: false },
+            employmentType: { type: String, default: "", trim: true },
+            description: { type: String, default: "", trim: true },
+          },
+        ],
+        default: [],
+      },
+      education: {
+        type: [
+          {
+            level: { type: String, default: "", trim: true },
+            institution: { type: String, default: "", trim: true },
+            degree: { type: String, default: "", trim: true },
+            fieldOfStudy: { type: String, default: "", trim: true },
+            city: { type: String, default: "", trim: true },
+            state: { type: String, default: "", trim: true },
+            country: { type: String, default: "", trim: true },
+            startYear: { type: String, default: "", trim: true },
+            endYear: { type: String, default: "", trim: true },
+            educationType: { type: String, default: "", trim: true },
+            grade: { type: String, default: "", trim: true },
+          },
+        ],
+        default: [],
+      },
+    },
     selectedServices: [
       {
         serviceId: {
@@ -52,6 +97,8 @@ const hasDelegateUserRole =
 const hasCandidateRole =
   Array.isArray(existingUserRoleValues) && existingUserRoleValues.includes("candidate");
 const hasCreatedByDelegatePath = Boolean(models.User?.schema.path("createdByDelegate"));
+const hasMustChangePasswordPath = Boolean(models.User?.schema.path("mustChangePassword"));
+const hasCandidateProfilePath = Boolean(models.User?.schema.path("candidateProfile"));
 const hasCountryRatesPath = Boolean(models.User?.schema.path("selectedServices.countryRates"));
 
 if (
@@ -60,6 +107,8 @@ if (
     !hasDelegateUserRole ||
     !hasCandidateRole ||
     !hasCreatedByDelegatePath ||
+    !hasMustChangePasswordPath ||
+    !hasCandidateProfilePath ||
     !hasCountryRatesPath)
 ) {
   delete models.User;

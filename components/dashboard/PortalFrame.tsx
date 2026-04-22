@@ -10,7 +10,7 @@ import {
   FileSignature,
   ListChecks,
   Menu,
-  Settings,
+  UserRound,
   LayoutDashboard,
   LogOut,
   User,
@@ -99,10 +99,10 @@ const navItems: IconNavItem[] = [
     }
   },
   { 
-    href: "/dashboard/settings", 
-    label: "Settings", 
-    icon: Settings,
-    description: "Manage your personal profile, update contact information, and security settings.",
+    href: "/dashboard/profile", 
+    label: "Profile", 
+    icon: UserRound,
+    description: "Manage your profile, work history, education details, and account security.",
     subIcons: [Sliders, BellRing],
     theme: {
       bg: "bg-slate-100 dark:bg-slate-800",

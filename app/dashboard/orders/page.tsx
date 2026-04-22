@@ -1468,11 +1468,15 @@ function OrdersPageContent() {
             isNotApplicable || hasRepeatableNotApplicableEntry
               ? resolvedNotApplicableText
               : "",
-          value: isNotApplicable ? resolvedNotApplicableText : normalizedValue,
-          fileName: answer.fileName,
-          fileMimeType: answer.fileMimeType,
-          fileSize: answer.fileSize,
-          fileData: isNotApplicable ? "" : answer.fileData,
+          value: isNotApplicable
+            ? resolvedNotApplicableText
+            : serviceAllowsMultipleEntries
+              ? ""
+              : normalizedValue,
+          fileName: serviceAllowsMultipleEntries ? "" : answer.fileName,
+          fileMimeType: serviceAllowsMultipleEntries ? "" : answer.fileMimeType,
+          fileSize: serviceAllowsMultipleEntries ? null : answer.fileSize,
+          fileData: isNotApplicable || serviceAllowsMultipleEntries ? "" : answer.fileData,
           entryFiles: isNotApplicable ? [] : normalizedEntryFiles,
         };
       }),
@@ -1765,7 +1769,6 @@ function OrdersPageContent() {
                                           answer,
                                           serviceEntryNumber,
                                         );
-                                        const showSharedUploader = serviceEntryIndex === 0;
 
                                         return (
                                           <div className={fieldGridColumn}
@@ -1780,48 +1783,6 @@ function OrdersPageContent() {
                                               />
                                             </label>
                                             <div style={{ display: "grid", gap: "0.7rem" }}>
-                                              {showSharedUploader ? (
-                                                <div
-                                                  style={{
-                                                    border: "1px solid #DBEAFE",
-                                                    borderRadius: "10px",
-                                                    background: "#EFF6FF",
-                                                    padding: "0.6rem",
-                                                    display: "grid",
-                                                    gap: "0.45rem",
-                                                  }}
-                                                >
-                                                  <p style={{ margin: 0, color: "#1D4ED8", fontSize: "0.82rem", fontWeight: 700 }}>
-                                                    Shared attachment for all entries
-                                                  </p>
-                                                  <input
-                                                    className="input"
-                                                    type="file"
-                                                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                                                    onChange={(e) =>
-                                                      onFileChange(
-                                                        item._id,
-                                                        serviceForm.serviceId,
-                                                        fieldStorageKey,
-                                                        e.target.files?.[0] ?? null,
-                                                        answer,
-                                                      )
-                                                    }
-                                                  />
-                                                  <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
-                                                    PDF, JPG, PNG only. Maximum size 5MB.
-                                                  </p>
-                                                  {answer.fileData ? (
-                                                    <div style={{ marginTop: "0.15rem", fontSize: "0.86rem" }}>
-                                                      <a href={answer.fileData} target="_blank" rel="noreferrer" style={{ color: "#2563EB", fontWeight: 700 }}>
-                                                        {answer.fileName || "View shared file"}
-                                                      </a>
-                                                      {answer.fileSize ? ` (${formatFileSize(answer.fileSize)})` : ""}
-                                                    </div>
-                                                  ) : null}
-                                                </div>
-                                              ) : null}
-
                                               <div
                                                 style={{
                                                   border: "1px solid #E2E8F0",
@@ -1851,7 +1812,7 @@ function OrdersPageContent() {
                                                   }
                                                 />
                                                 <p style={{ margin: 0, color: "#6C757D", fontSize: "0.82rem" }}>
-                                                  Upload only for this entry. If empty, shared file is used.
+                                                  Upload only for this entry.
                                                 </p>
                                                 {entryFile?.fileData ? (
                                                   <div style={{ marginTop: "0.15rem", fontSize: "0.86rem" }}>
@@ -1860,10 +1821,6 @@ function OrdersPageContent() {
                                                     </a>
                                                     {entryFile.fileSize ? ` (${formatFileSize(entryFile.fileSize)})` : ""}
                                                   </div>
-                                                ) : answer.fileData ? (
-                                                  <p style={{ margin: "0.15rem 0 0", color: "#1E40AF", fontSize: "0.8rem", fontWeight: 600 }}>
-                                                    Using shared file fallback for this entry.
-                                                  </p>
                                                 ) : null}
                                               </div>
                                             </div>

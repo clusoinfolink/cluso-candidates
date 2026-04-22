@@ -43,7 +43,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      const data = (await res.json()) as { mustChangePassword?: boolean };
+      router.push(data.mustChangePassword ? "/dashboard/profile" : "/dashboard");
     } catch {
       setError("Could not reach server. Please try again.");
     } finally {

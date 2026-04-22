@@ -15,6 +15,40 @@ export type PortalUser = {
   name: string;
   email: string;
   role: PortalRole;
+  mustChangePassword?: boolean;
+};
+
+export type CandidateEmploymentRecord = {
+  companyName: string;
+  designation: string;
+  city: string;
+  state: string;
+  country: string;
+  startDate: string;
+  endDate: string;
+  currentlyWorking: boolean;
+  employmentType: string;
+  description: string;
+};
+
+export type CandidateEducationRecord = {
+  level: string;
+  institution: string;
+  degree: string;
+  fieldOfStudy: string;
+  city: string;
+  state: string;
+  country: string;
+  startYear: string;
+  endYear: string;
+  educationType: string;
+  grade: string;
+};
+
+export type CandidateProfile = {
+  keySkills: string[];
+  employment: CandidateEmploymentRecord[];
+  education: CandidateEducationRecord[];
 };
 
 export type MeResponse = {

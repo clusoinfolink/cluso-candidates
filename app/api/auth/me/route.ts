@@ -30,6 +30,7 @@ export async function GET() {
       name: user.name,
       email: user.email,
       role: "candidate",
+      mustChangePassword: user.mustChangePassword !== false,
     },
   });
 }

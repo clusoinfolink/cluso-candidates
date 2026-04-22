@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     await connectMongo();
 
     const user = await User.findOne({ email: parsed.data.email.toLowerCase() })
-      .select("_id role passwordHash")
+      .select("_id role passwordHash mustChangePassword")
       .lean();
     if (!user || user.role !== "candidate") {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
@@ -89,7 +89,8 @@ export async function POST(req: Request) {
       role: "candidate",
     });
 
-    const res = NextResponse.json({ message: "Logged in" });
+    const mustChangePassword = user.mustChangePassword !== false;
+    const res = NextResponse.json({ message: "Logged in", mustChangePassword });
     res.cookies.set(candidateCookieName(), token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

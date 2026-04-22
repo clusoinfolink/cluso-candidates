@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { MeResponse, PortalUser } from "@/lib/types";
 
 const SESSION_QUERY_KEY = ["candidate-portal-session"];
@@ -21,6 +21,7 @@ async function fetchPortalSession() {
 
 export function usePortalSession() {
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
 
   const sessionQuery = useQuery<PortalUser>({
@@ -43,6 +44,19 @@ export function usePortalSession() {
       router.push("/");
     }
   }, [router, sessionQuery.isError]);
+
+  useEffect(() => {
+    const me = sessionQuery.data;
+    if (!me || !me.mustChangePassword) {
+      return;
+    }
+
+    if (pathname?.startsWith("/dashboard/profile")) {
+      return;
+    }
+
+    router.push("/dashboard/profile");
+  }, [pathname, router, sessionQuery.data]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

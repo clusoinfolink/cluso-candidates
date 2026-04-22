@@ -36,7 +36,7 @@ export default function TeamPage() {
           <li>Open Forms and complete every required service question.</li>
           <li>Submit the form to move your request into admin review.</li>
           <li>Track approval or rejection updates from History.</li>
-          <li>Use Settings to update your account password regularly.</li>
+          <li>Use Profile to keep your details updated and rotate your password regularly.</li>
         </ol>
 
         <Link href="/dashboard/orders" className="quick-action-link" style={{ marginTop: "0.8rem", display: "inline-flex" }}>

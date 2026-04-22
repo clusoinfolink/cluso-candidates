@@ -35,6 +35,25 @@ function parseRepeatableAnswerValues(rawValue: string, repeatable?: boolean) {
   }
 }
 
+function dedupeDisplayValues(values: string[]) {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!normalized) {
+      continue;
+    }
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(value.trim());
+  }
+
+  return deduped;
+}
+
 function formatServiceLabelWithHistory(service: RequestItem["selectedServices"][number]) {
   const historyWindow = formatRequestedHistoryWindow(service.yearsOfChecking);
   if (!historyWindow) {
@@ -75,6 +94,114 @@ function sortCandidateResponsesForDisplay(
       return left.isPersonalDetailsService ? -1 : 1;
     })
     .map((entry) => entry.serviceResponse);
+}
+
+function formatServiceInstanceName(serviceName: string, entryIndex: number, entryCount: number) {
+  const trimmedName = serviceName.trim() || "Service";
+  if (entryCount <= 1) {
+    return trimmedName;
+  }
+
+  const suffix = ` ${entryIndex}`;
+  if (trimmedName.endsWith(suffix)) {
+    return trimmedName;
+  }
+
+  return `${trimmedName}${suffix}`;
+}
+
+function normalizeServiceNameForGrouping(serviceName: string) {
+  return serviceName.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function buildServiceInstancesForHistory(
+  serviceResponse: CandidateServiceResponse,
+) {
+  const entryCountFromResponse =
+    typeof serviceResponse.serviceEntryCount === "number" &&
+    Number.isFinite(serviceResponse.serviceEntryCount) &&
+    serviceResponse.serviceEntryCount > 0
+      ? Math.trunc(serviceResponse.serviceEntryCount)
+      : 1;
+
+  const repeatableMax = serviceResponse.answers.reduce((maxCount, answer) => {
+    const values = parseRepeatableAnswerValues(answer.value, answer.repeatable);
+    return Math.max(maxCount, values.length);
+  }, 0);
+
+  const entryFilesMax = serviceResponse.answers.reduce((maxCount, answer) => {
+    const entryIndexes = (answer.entryFiles ?? [])
+      .map((entry) =>
+        typeof entry.entryIndex === "number" && Number.isFinite(entry.entryIndex)
+          ? Math.trunc(entry.entryIndex)
+          : 0,
+      )
+      .filter((entryIndex) => entryIndex > 0);
+
+    return Math.max(maxCount, ...entryIndexes, 0);
+  }, 0);
+
+  const entryCount = Math.max(1, entryCountFromResponse, repeatableMax, entryFilesMax);
+
+  return Array.from({ length: entryCount }, (_, idx) => {
+    const entryIndex = idx + 1;
+    return {
+      serviceId: serviceResponse.serviceId,
+      serviceName: formatServiceInstanceName(serviceResponse.serviceName, entryIndex, entryCount),
+      serviceEntryIndex: entryIndex,
+      serviceEntryCount: entryCount,
+      answers: serviceResponse.answers.map((answer) => {
+        const repeatableValues = parseRepeatableAnswerValues(answer.value, answer.repeatable);
+        const resolvedValue =
+          repeatableValues.length > 0 ? repeatableValues[entryIndex - 1] ?? "" : answer.value;
+
+        const entryFile = (answer.entryFiles ?? []).find((entry) => entry.entryIndex === entryIndex);
+        const resolvedFileData = entryFile?.fileData ?? answer.fileData;
+        const resolvedFileName = entryFile?.fileName ?? answer.fileName;
+
+        return {
+          ...answer,
+          value: resolvedValue,
+          fileData: resolvedFileData,
+          fileName: resolvedFileName,
+        };
+      }),
+    };
+  });
+}
+
+function annotateServiceInstancesForDisplay(
+  instances: Array<{
+    serviceId: string;
+    serviceName: string;
+    serviceEntryIndex: number;
+    serviceEntryCount: number;
+    answers: CandidateServiceResponse["answers"];
+  }>,
+) {
+  const totalByName = new Map<string, number>();
+
+  for (const instance of instances) {
+    const nameKey = normalizeServiceNameForGrouping(instance.serviceName);
+    totalByName.set(nameKey, (totalByName.get(nameKey) ?? 0) + 1);
+  }
+
+  const seenByName = new Map<string, number>();
+
+  return instances.map((instance) => {
+    const nameKey = normalizeServiceNameForGrouping(instance.serviceName);
+    const totalForName = totalByName.get(nameKey) ?? 1;
+    const seenCount = (seenByName.get(nameKey) ?? 0) + 1;
+    seenByName.set(nameKey, seenCount);
+
+    const displayServiceName =
+      totalForName > 1 ? formatServiceInstanceName(instance.serviceName, seenCount, totalForName) : instance.serviceName;
+
+    return {
+      ...instance,
+      displayServiceName,
+    };
+  });
 }
 
 function RequestsPageContent() {
@@ -221,7 +348,7 @@ function RequestsPageContent() {
             if (currentStatus === "verified") statusBadge = "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-300";
             else if (currentStatus === "approved") statusBadge = "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400";
             else if (currentStatus === "rejected") statusBadge = "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400";
-            else if (currentStatus === "pending" || currentStatus === "in-progress") statusBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400";
+            else if (currentStatus === "pending") statusBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400";
 
             return (
             <article
@@ -331,23 +458,20 @@ function RequestsPageContent() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {sortCandidateResponsesForDisplay(
-                        item.candidateFormResponses,
-                      ).map((serviceResponse) => (
+                      {annotateServiceInstancesForDisplay(
+                        sortCandidateResponsesForDisplay(item.candidateFormResponses).flatMap(
+                          (serviceResponse) => buildServiceInstancesForHistory(serviceResponse),
+                        ),
+                      ).map((serviceResponse, serviceResponseIndex) => (
                         <div
-                          key={`${item._id}-${serviceResponse.serviceId}`}
+                          key={`${item._id}-${serviceResponse.serviceId}-${serviceResponse.serviceEntryIndex ?? 1}-${serviceResponseIndex}`}
                           className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg overflow-hidden"
                         >
                           <div className="bg-gray-50 dark:bg-gray-900/50 px-4 py-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-sm text-gray-900 dark:text-white">
-                            {serviceResponse.serviceName}
+                            {serviceResponse.displayServiceName}
                           </div>
                           <div className="px-4 py-3 space-y-3 divide-y divide-gray-100 dark:divide-gray-700/50">
                             {serviceResponse.answers.map((answer, index) => {
-                              const repeatableValues = parseRepeatableAnswerValues(
-                                answer.value,
-                                answer.repeatable,
-                              );
-
                               return (
                                 <div key={`${serviceResponse.serviceId}-${index}`} className="pt-3 first:pt-0">
                                   <span className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{answer.question}</span>
@@ -361,17 +485,6 @@ function RequestsPageContent() {
                                       >
                                         📄 {answer.fileName || "Open attachment"}
                                       </a>
-                                    ) : repeatableValues.length > 0 ? (
-                                      <ul className="list-disc pl-5 space-y-1">
-                                        {repeatableValues.map((entry, entryIndex) => (
-                                          <li
-                                            key={`${serviceResponse.serviceId}-${index}-entry-${entryIndex}`}
-                                            className="whitespace-pre-wrap break-words"
-                                          >
-                                            {entry}
-                                          </li>
-                                        ))}
-                                      </ul>
                                     ) : (
                                       answer.value || <span className="text-gray-400 italic">No answer</span>
                                     )}
