@@ -9,11 +9,19 @@ import {
   CheckCheck,
   FileSignature,
   ListChecks,
-  MoreHorizontal,
+  Menu,
   Settings,
   LayoutDashboard,
   LogOut,
   User,
+  PieChart,
+  Activity,
+  FileText,
+  Briefcase,
+  Search,
+  ScanEye,
+  Sliders,
+  BellRing,
   type LucideIcon,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,18 +35,83 @@ type PortalFrameProps = {
   children: ReactNode;
 };
 
+type NavItemTheme = {
+  bg: string;
+  border: string;
+  text: string;
+  iconColor: string;
+  gradient: string;
+};
+
 type NavItem = {
   href: string;
   label: string;
+  description: string;
+  theme: NavItemTheme;
 };
 
-type IconNavItem = NavItem & { icon: LucideIcon };
+type IconNavItem = NavItem & { 
+  icon: LucideIcon;
+  subIcons: LucideIcon[];
+};
 
 const navItems: IconNavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/orders", label: "Forms", icon: FileSignature },
-  { href: "/dashboard/requests", label: "History", icon: ListChecks },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { 
+    href: "/dashboard", 
+    label: "Dashboard", 
+    icon: LayoutDashboard,
+    description: "Monitor your overall background screening progress and see required actions.",
+    subIcons: [PieChart, Activity],
+    theme: {
+      bg: "bg-blue-50 dark:bg-blue-900/40",
+      border: "border-blue-200 dark:border-blue-800",
+      text: "text-blue-800 dark:text-blue-300",
+      iconColor: "text-blue-600 dark:text-blue-400",
+      gradient: "from-blue-500 to-cyan-400",
+    }
+  },
+  { 
+    href: "/dashboard/orders", 
+    label: "Forms", 
+    icon: FileSignature,
+    description: "Complete assigned verification forms, submit necessary documents, and sign disclosures.",
+    subIcons: [FileText, Briefcase],
+    theme: {
+      bg: "bg-emerald-50 dark:bg-emerald-900/40",
+      border: "border-emerald-200 dark:border-emerald-800",
+      text: "text-emerald-800 dark:text-emerald-300",
+      iconColor: "text-emerald-600 dark:text-emerald-400",
+      gradient: "from-emerald-500 to-teal-400",
+    }
+  },
+  { 
+    href: "/dashboard/requests", 
+    label: "History", 
+    icon: ListChecks,
+    description: "Access your verification history and review past background screening checks.",
+    subIcons: [Search, ScanEye],
+    theme: {
+      bg: "bg-violet-50 dark:bg-violet-900/40",
+      border: "border-violet-200 dark:border-violet-800",
+      text: "text-violet-800 dark:text-violet-300",
+      iconColor: "text-violet-600 dark:text-violet-400",
+      gradient: "from-violet-500 to-fuchsia-400",
+    }
+  },
+  { 
+    href: "/dashboard/settings", 
+    label: "Settings", 
+    icon: Settings,
+    description: "Manage your personal profile, update contact information, and security settings.",
+    subIcons: [Sliders, BellRing],
+    theme: {
+      bg: "bg-slate-100 dark:bg-slate-800",
+      border: "border-slate-200 dark:border-slate-700",
+      text: "text-slate-800 dark:text-slate-300",
+      iconColor: "text-slate-600 dark:text-slate-400",
+      gradient: "from-slate-400 to-slate-300",
+    }
+  },
 ];
 
 const REQUESTS_QUERY_KEY = ["candidate-requests"];
@@ -284,15 +357,45 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setIsMobileNavOpen(false)}
-                className={`portal-nav-link ${isNavActive(pathname, item.href) ? "active" : ""}`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </Link>
+              <div key={item.href} className="relative group z-0 flex items-stretch lg:group-hover:z-[1600]">
+                <Link
+                  href={item.href}
+                  onClick={() => setIsMobileNavOpen(false)}
+                  className={`portal-nav-link w-full ${isNavActive(pathname, item.href) ? "active" : ""}`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </Link>
+
+                <div 
+                  className="absolute left-full ml-[0.35rem] top-1/2 w-[270px] -translate-y-1/2 hidden lg:group-hover:flex flex-col z-[1700] pointer-events-none scale-95 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-200 origin-left"
+                >
+                  <div className={`absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 rotate-45 border-l border-b bg-white dark:bg-slate-900 ${item.theme.border} z-[1] drop-shadow-sm`}></div>
+                  
+                  <div className={`relative px-4 py-4 pb-5 rounded-2xl shadow-xl bg-white dark:bg-slate-900 border ${item.theme.border} z-[2] overflow-hidden`}>
+                    <div className={`absolute top-0 inset-x-0 h-1 bg-gradient-to-r ${item.theme.gradient}`} />
+
+                    <div className="flex items-center gap-3 mb-2 pt-1">
+                      <div className={`p-1.5 rounded-lg flex items-center justify-center ${item.theme.bg} ${item.theme.text}`}>
+                        <Icon size={16} strokeWidth={2.5} className="drop-shadow-sm" />
+                      </div>
+                      <strong className="text-[14.5px] font-bold tracking-tight text-slate-800 dark:text-slate-100">{item.label}</strong>
+                    </div>
+                    
+                    <p className="text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 mt-2 mb-4 font-medium px-0.5">
+                      {item.description}
+                    </p>
+                    
+                    <div className="flex items-center gap-2 mt-auto px-0.5">
+                      {item.subIcons?.map((SubIcon, idx) => (
+                         <div key={idx} className={`p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/80 ${item.theme.iconColor}`}>
+                           <SubIcon size={16} strokeWidth={2} />
+                         </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </nav>
@@ -314,11 +417,11 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
               type="button"
               className="portal-nav-overflow-trigger"
               onClick={() => setIsMobileNavOpen((prev) => !prev)}
-              aria-label="More options"
+              aria-label="Open menu"
               aria-expanded={isMobileNavOpen}
               aria-controls="candidate-mobile-nav"
             >
-              <MoreHorizontal size={18} />
+              <Menu size={18} />
             </button>
             <div style={{ display: "grid", gap: "0.15rem" }}>
               <h1 className="admin-topbar-title">{title || "Candidate Panel"}</h1>
