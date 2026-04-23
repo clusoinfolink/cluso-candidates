@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { getAlertTone } from "@/lib/alerts";
 import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
@@ -358,6 +359,21 @@ function buildRejectedFieldKey(serviceId: string, fieldKey: string, question: st
   return `${serviceId}::question::${question.trim()}`;
 }
 
+function buildFieldTargetKey(
+  requestId: string,
+  serviceId: string,
+  fieldStorageKey: string,
+  entryIndex?: number,
+) {
+  return `${requestId}::${serviceId}::${fieldStorageKey}::${
+    typeof entryIndex === "number" ? entryIndex : "single"
+  }`;
+}
+
+function buildFieldTargetAnchorId(targetKey: string) {
+  return `field-target-${targetKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
 function supportsLengthConstraints(field: ServiceFormField) {
   return (
     field.fieldType === "text" ||
@@ -515,6 +531,7 @@ function OrdersPageContent() {
   const [submittingRequestId, setSubmittingRequestId] = useState("");
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [missingFieldTargets, setMissingFieldTargets] = useState<Record<string, true>>({});
   const focusRequestId = searchParams.get("requestId")?.trim() ?? "";
 
   useEffect(() => {
@@ -625,6 +642,10 @@ function OrdersPageContent() {
     fieldKey: string,
     next: DraftAnswer,
   ) {
+    if (Object.keys(missingFieldTargets).length > 0) {
+      setMissingFieldTargets({});
+    }
+
     setFormDrafts((prev) => ({
       ...prev,
       [requestId]: {
@@ -638,6 +659,19 @@ function OrdersPageContent() {
         },
       },
     }));
+  }
+
+  function focusFieldTarget(targetKey: string) {
+    const fieldContainer = document.getElementById(buildFieldTargetAnchorId(targetKey));
+    if (!fieldContainer) {
+      return;
+    }
+
+    fieldContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+    const control = fieldContainer.querySelector<HTMLElement>(
+      "select:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type='hidden']), button:not([disabled])",
+    );
+    control?.focus({ preventScroll: true });
   }
 
   const personalDetailsSourcesByRequestId = useMemo(() => {
@@ -1358,7 +1392,31 @@ function OrdersPageContent() {
     setMessage("");
     setSubmittingRequestId(item._id);
 
-    let dropdownValidationError = "";
+    const missingFieldTargetKeys = new Set<string>();
+    let firstMissingFieldTarget: { key: string; message: string } | null = null;
+
+    const markMissingField = (
+      serviceId: string,
+      fieldStorageKey: string,
+      fieldQuestion: string,
+      message: string,
+      entryIndex?: number,
+    ) => {
+      const targetKey = buildFieldTargetKey(
+        item._id,
+        serviceId,
+        fieldStorageKey,
+        entryIndex,
+      );
+      missingFieldTargetKeys.add(targetKey);
+
+      if (!firstMissingFieldTarget) {
+        firstMissingFieldTarget = {
+          key: targetKey,
+          message,
+        };
+      }
+    };
 
     const responses = item.serviceForms.map((serviceForm) => ({
       serviceId: serviceForm.serviceId,
@@ -1438,13 +1496,67 @@ function OrdersPageContent() {
           })
           .filter(Boolean);
 
-        if (!dropdownValidationError && field.fieldType === "dropdown" && field.required) {
-          if (usesRepeatableMode) {
-            if (normalizedRepeatableValues.length === 0) {
-              dropdownValidationError = `${field.question} is required. Please select an option.`;
+        const normalizedSingleTrimmedValue = normalizedSingleValue.trim();
+        const normalizedEntryFiles = normalizeDraftEntryFiles(answer.entryFiles);
+
+        if (field.required && !isNotApplicable) {
+          if (field.fieldType === "file") {
+            if (serviceAllowsMultipleEntries) {
+              const requiredEntryCount = Math.max(1, getServiceLevelEntryCount(item, serviceForm));
+
+              for (let entryNumber = 1; entryNumber <= requiredEntryCount; entryNumber += 1) {
+                const hasEntryFile = normalizedEntryFiles.some(
+                  (entryFile) =>
+                    entryFile.entryIndex === entryNumber &&
+                    Boolean(entryFile.fileData.trim()),
+                );
+
+                if (!hasEntryFile) {
+                  markMissingField(
+                    serviceForm.serviceId,
+                    fieldStorageKey,
+                    field.question,
+                    `${field.question} is required for entry ${entryNumber}.`,
+                    entryNumber - 1,
+                  );
+                  break;
+                }
+              }
+            } else if (!answer.fileData.trim()) {
+              markMissingField(
+                serviceForm.serviceId,
+                fieldStorageKey,
+                field.question,
+                `${field.question} is required.`,
+              );
             }
-          } else if (!isNotApplicable && isDropdownWithDefaultSelection) {
-            dropdownValidationError = `${field.question} is required. Please select an option.`;
+          } else if (usesRepeatableMode) {
+            if (normalizedRepeatableValues.length === 0) {
+              markMissingField(
+                serviceForm.serviceId,
+                fieldStorageKey,
+                field.question,
+                field.fieldType === "dropdown"
+                  ? `${field.question} is required. Please select an option.`
+                  : `${field.question} is required.`,
+                serviceAllowsMultipleEntries ? 0 : undefined,
+              );
+            }
+          } else {
+            const isMissingDropdown =
+              field.fieldType === "dropdown" && isDropdownWithDefaultSelection;
+            const isMissingValue = !normalizedSingleTrimmedValue || isMissingDropdown;
+
+            if (isMissingValue) {
+              markMissingField(
+                serviceForm.serviceId,
+                fieldStorageKey,
+                field.question,
+                field.fieldType === "dropdown"
+                  ? `${field.question} is required. Please select an option.`
+                  : `${field.question} is required.`,
+              );
+            }
           }
         }
 
@@ -1452,7 +1564,6 @@ function OrdersPageContent() {
           usesRepeatableMode &&
           Boolean(field.allowNotApplicable) &&
           normalizedRepeatableValues.some((entry) => entry === resolvedNotApplicableText);
-        const normalizedEntryFiles = normalizeDraftEntryFiles(answer.entryFiles);
         const normalizedValue = usesRepeatableMode
           ? serializeRepeatableAnswerValues(normalizedRepeatableValues)
           : isDropdownWithDefaultSelection
@@ -1470,9 +1581,7 @@ function OrdersPageContent() {
               : "",
           value: isNotApplicable
             ? resolvedNotApplicableText
-            : serviceAllowsMultipleEntries
-              ? ""
-              : normalizedValue,
+            : normalizedValue,
           fileName: serviceAllowsMultipleEntries ? "" : answer.fileName,
           fileMimeType: serviceAllowsMultipleEntries ? "" : answer.fileMimeType,
           fileSize: serviceAllowsMultipleEntries ? null : answer.fileSize,
@@ -1482,11 +1591,23 @@ function OrdersPageContent() {
       }),
     }));
 
-    if (dropdownValidationError) {
+    if (firstMissingFieldTarget) {
       setSubmittingRequestId("");
-      setMessage(dropdownValidationError);
+      setExpandedRequestId(item._id);
+      setMissingFieldTargets(
+        [...missingFieldTargetKeys].reduce<Record<string, true>>((acc, key) => {
+          acc[key] = true;
+          return acc;
+        }, {}),
+      );
+      setMessage(firstMissingFieldTarget.message);
+      window.setTimeout(() => {
+        focusFieldTarget(firstMissingFieldTarget.key);
+      }, 80);
       return;
     }
+
+    setMissingFieldTargets({});
 
     const res = await fetch("/api/requests", {
       method: "PATCH",
@@ -1508,11 +1629,10 @@ function OrdersPageContent() {
 
   if (loading || requestsLoading || !me || !requestsReady) {
     return (
-      <main className="portal-shell">
-        <BlockCard tone="muted">
-          <p className="block-subtitle">Loading candidate forms...</p>
-        </BlockCard>
-      </main>
+      <LoadingScreen
+        title="Loading candidate forms..."
+        subtitle="Preparing assigned verification forms"
+      />
     );
   }
 
@@ -1547,7 +1667,7 @@ function OrdersPageContent() {
             const hasRejectedFields = rejectedFieldSet.size > 0;
 
             return (
-              <BlockCard as="article" key={item._id}>
+              <BlockCard as="article" key={item._id} id={`request-${item._id}`}>
                 <button
                   className="request-accordion-toggle"
                   type="button"
@@ -1740,6 +1860,13 @@ function OrdersPageContent() {
                                   >
                                     {serviceForm.fields.map((field) => {
                                       const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+                                      const fieldTargetKey = buildFieldTargetKey(
+                                        item._id,
+                                        serviceForm.serviceId,
+                                        fieldStorageKey,
+                                        serviceEntryIndex,
+                                      );
+                                      const isMissingField = Boolean(missingFieldTargets[fieldTargetKey]);
                                       const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                                       const labelText = `${field.question}${field.required ? " *" : ""}`;
                                       const fieldGridColumn = getFieldGridColumnClass(field);
@@ -1753,12 +1880,16 @@ function OrdersPageContent() {
                                           field.question,
                                         ),
                                       );
-                                      const correctionStyle = isRejectedField
+                                      const needsAttention = isRejectedField || isMissingField;
+                                      const correctionStyle = needsAttention
                                         ? {
                                             border: "1px solid #F5C2C7",
                                             borderRadius: "10px",
                                             background: "#FFF7F7",
                                             padding: "0.55rem 0.6rem",
+                                            boxShadow: isMissingField
+                                              ? "0 0 0 2px rgba(220, 38, 38, 0.2)"
+                                              : undefined,
                                           }
                                         : {};
                                       const constraintHint = getConstraintHint(field);
@@ -1772,6 +1903,7 @@ function OrdersPageContent() {
 
                                         return (
                                           <div className={fieldGridColumn}
+                                            id={buildFieldTargetAnchorId(fieldTargetKey)}
                                             key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryNumber}`}
                                             style={{ ...correctionStyle, }}
                                           >
@@ -1895,6 +2027,7 @@ function OrdersPageContent() {
                                       if (field.fieldType === "long_text") {
                                         return (
                                           <div className={fieldGridColumn}
+                                            id={buildFieldTargetAnchorId(fieldTargetKey)}
                                             key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
                                             style={{ ...correctionStyle, }}
                                           >
@@ -1970,9 +2103,10 @@ function OrdersPageContent() {
 
                                       return (
                                         <div className={fieldGridColumn}
+                                          id={buildFieldTargetAnchorId(fieldTargetKey)}
                                           key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}-${serviceEntryIndex}`}
                                           style={
-                                            isRejectedField
+                                            needsAttention
                                               ? {
                                                   display: "grid",
                                                   gridTemplateColumns: fieldRowTemplate,
@@ -1983,6 +2117,9 @@ function OrdersPageContent() {
                                                   borderRadius: "10px",
                                                   background: "#FFF7F7",
                                                   padding: "0.55rem 0.6rem",
+                                                  boxShadow: isMissingField
+                                                    ? "0 0 0 2px rgba(220, 38, 38, 0.2)"
+                                                    : undefined,
                                                 }
                                               : {
                                                   display: "grid",
@@ -2136,6 +2273,12 @@ function OrdersPageContent() {
                               {serviceForm.fields.map((field) => {
                               const serviceAllowsMultipleEntries = Boolean(serviceForm.allowMultipleEntries);
                               const fieldStorageKey = field.fieldKey?.trim() || field.question.trim();
+                              const fieldTargetKey = buildFieldTargetKey(
+                                item._id,
+                                serviceForm.serviceId,
+                                fieldStorageKey,
+                              );
+                              const isMissingField = Boolean(missingFieldTargets[fieldTargetKey]);
                               const answer = getDraftAnswer(item, serviceForm.serviceId, field);
                               const labelText = `${field.question}${field.required ? " *" : ""}`;
                               const fieldGridColumn = getFieldGridColumnClass(field);
@@ -2157,12 +2300,16 @@ function OrdersPageContent() {
                                   field.question,
                                 ),
                               );
-                              const correctionStyle = isRejectedField
+                              const needsAttention = isRejectedField || isMissingField;
+                              const correctionStyle = needsAttention
                                 ? {
                                     border: "1px solid #F5C2C7",
                                     borderRadius: "10px",
                                     background: "#FFF7F7",
                                     padding: "0.55rem 0.6rem",
+                                    boxShadow: isMissingField
+                                      ? "0 0 0 2px rgba(220, 38, 38, 0.2)"
+                                      : undefined,
                                   }
                                 : {};
                               const constraintHint = getConstraintHint(field);
@@ -2213,6 +2360,7 @@ function OrdersPageContent() {
 
                                   return (
                                     <div className={fieldGridColumn}
+                                      id={buildFieldTargetAnchorId(fieldTargetKey)}
                                       key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                       style={{ ...correctionStyle, }}
                                     >
@@ -2324,6 +2472,7 @@ function OrdersPageContent() {
 
                                 return (
                                   <div className={fieldGridColumn}
+                                    id={buildFieldTargetAnchorId(fieldTargetKey)}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                     style={{ ...correctionStyle, }}
                                   >
@@ -2369,6 +2518,7 @@ function OrdersPageContent() {
                               if (field.fieldType === "file") {
                                 return (
                                   <div className={fieldGridColumn}
+                                    id={buildFieldTargetAnchorId(fieldTargetKey)}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                     style={{ ...correctionStyle, }}
                                   >
@@ -2445,9 +2595,10 @@ function OrdersPageContent() {
 
                                 return (
                                   <div className={fieldGridColumn}
+                                    id={buildFieldTargetAnchorId(fieldTargetKey)}
                                     key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                     style={
-                                      isRejectedField
+                                      needsAttention
                                         ? {
                                             display: "grid",
                                             gridTemplateColumns: fieldRowTemplate,
@@ -2458,6 +2609,9 @@ function OrdersPageContent() {
                                             borderRadius: "10px",
                                             background: "#FFF7F7",
                                             padding: "0.55rem 0.6rem",
+                                            boxShadow: isMissingField
+                                              ? "0 0 0 2px rgba(220, 38, 38, 0.2)"
+                                              : undefined,
                                           }
                                         : {
                                             display: "grid",
@@ -2697,9 +2851,10 @@ function OrdersPageContent() {
 
                               return (
                                 <div className={fieldGridColumn}
+                                  id={buildFieldTargetAnchorId(fieldTargetKey)}
                                   key={`${item._id}-${serviceForm.serviceId}-${fieldStorageKey}`}
                                   style={
-                                    isRejectedField
+                                    needsAttention
                                       ? {
                                           display: "grid",
                                           gridTemplateColumns: fieldRowTemplate,
@@ -2710,6 +2865,9 @@ function OrdersPageContent() {
                                           borderRadius: "10px",
                                           background: "#FFF7F7",
                                           padding: "0.55rem 0.6rem",
+                                          boxShadow: isMissingField
+                                            ? "0 0 0 2px rgba(220, 38, 38, 0.2)"
+                                            : undefined,
                                         }
                                       : {
                                           display: "grid",
@@ -2865,11 +3023,10 @@ export default function OrdersPage() {
   return (
     <Suspense
       fallback={
-        <main className="portal-shell">
-          <BlockCard tone="muted">
-            <p className="block-subtitle">Loading candidate forms...</p>
-          </BlockCard>
-        </main>
+        <LoadingScreen
+          title="Loading candidate forms..."
+          subtitle="Preparing assigned verification forms"
+        />
       }
     >
       <OrdersPageContent />

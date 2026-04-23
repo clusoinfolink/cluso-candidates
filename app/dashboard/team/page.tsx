@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Compass } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 
 export default function TeamPage() {
@@ -11,11 +12,10 @@ export default function TeamPage() {
 
   if (loading || !me) {
     return (
-      <main className="portal-shell">
-        <BlockCard tone="muted">
-          <p className="block-subtitle">Loading workspace...</p>
-        </BlockCard>
-      </main>
+      <LoadingScreen
+        title="Loading workspace..."
+        subtitle="Preparing candidate guidance"
+      />
     );
   }
 

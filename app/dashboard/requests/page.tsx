@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { ListChecks, Search } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard } from "@/components/ui/blocks";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { formatRequestedHistoryWindow } from "@/lib/history";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
@@ -285,11 +286,10 @@ function RequestsPageContent() {
 
   if (loading || requestsLoading || !me || !requestsReady) {
     return (
-      <main className="portal-shell">
-        <BlockCard tone="muted">
-          <p className="block-subtitle">Loading request history...</p>
-        </BlockCard>
-      </main>
+      <LoadingScreen
+        title="Loading request history..."
+        subtitle="Fetching your verification timeline"
+      />
     );
   }
 
@@ -512,11 +512,10 @@ export default function RequestsPage() {
   return (
     <Suspense
       fallback={
-        <main className="portal-shell">
-          <BlockCard tone="muted">
-            <p className="block-subtitle">Loading request history...</p>
-          </BlockCard>
-        </main>
+        <LoadingScreen
+          title="Loading request history..."
+          subtitle="Fetching your verification timeline"
+        />
       }
     >
       <RequestsPageContent />

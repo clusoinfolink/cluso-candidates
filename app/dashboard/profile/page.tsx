@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { BriefcaseBusiness, GraduationCap, KeyRound, UserRound } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
 import { BlockCard, BlockTitle } from "@/components/ui/blocks";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { getAlertTone } from "@/lib/alerts";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import {
@@ -113,11 +114,10 @@ export default function CandidateProfilePage() {
 
   if (loading || !me || profileLoading) {
     return (
-      <main className="portal-shell">
-        <BlockCard tone="muted">
-          <p className="block-subtitle">Loading profile...</p>
-        </BlockCard>
-      </main>
+      <LoadingScreen
+        title="Loading profile..."
+        subtitle="Preparing your personal details"
+      />
     );
   }
 

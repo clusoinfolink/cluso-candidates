@@ -12,6 +12,7 @@ import {
   TriangleAlert
 } from "lucide-react";
 import { PortalFrame } from "@/components/dashboard/PortalFrame";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { usePortalSession } from "@/lib/hooks/usePortalSession";
 import { useRequestsData } from "@/lib/hooks/useRequestsData";
 
@@ -31,7 +32,12 @@ export default function DashboardOverviewPage() {
   }, [me, refreshRequests]);
 
   if (loading || requestsLoading || !me || !requestsReady) {
-    return <main className="portal-shell"><p>Loading your workspace...</p></main>;
+    return (
+      <LoadingScreen
+        title="Loading workspace..."
+        subtitle="Preparing your dashboard overview"
+      />
+    );
   }
 
   const pendingFormsCount = items.filter((item) => item.candidateFormStatus === "pending").length;
