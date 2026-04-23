@@ -64,6 +64,7 @@ export default function CandidateProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [highlightPasswordSection, setHighlightPasswordSection] = useState(false);
 
   const [profile, setProfile] = useState<CandidateProfile>(EMPTY_PROFILE);
   const [skillsInput, setSkillsInput] = useState("");
@@ -111,6 +112,32 @@ export default function CandidateProfilePage() {
       active = false;
     };
   }, [me]);
+
+  useEffect(() => {
+    const shouldFocusPasswordSection =
+      Boolean(me?.mustChangePassword) ||
+      new URLSearchParams(window.location.search).get("focus") === "password-change";
+
+    if (!shouldFocusPasswordSection) {
+      return;
+    }
+
+    setHighlightPasswordSection(true);
+
+    const timer = window.setTimeout(() => {
+      const passwordSection = document.getElementById("change-password-section");
+      passwordSection?.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      const currentPasswordInput = document.getElementById("current-password");
+      if (currentPasswordInput instanceof HTMLInputElement) {
+        currentPasswordInput.focus({ preventScroll: true });
+      }
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [me?.mustChangePassword]);
 
   if (loading || !me || profileLoading) {
     return (
@@ -406,7 +433,14 @@ export default function CandidateProfilePage() {
         </button>
       </form>
 
-      <BlockCard as="article" interactive className={`${SECTION_CARD_CLASS} mt-8`}>
+      <BlockCard
+        as="article"
+        interactive
+        id="change-password-section"
+        className={`${SECTION_CARD_CLASS} mt-8 transition-all ${
+          highlightPasswordSection ? "ring-4 ring-amber-300/80 shadow-lg shadow-amber-200/40" : ""
+        }`}
+      >
         <BlockTitle
           icon={<KeyRound size={14} />}
           title="Change Password"
@@ -466,9 +500,15 @@ export default function CandidateProfilePage() {
 
           {passwordMessage ? <p className={`inline-alert ${getAlertTone(passwordMessage)}`}>{passwordMessage}</p> : null}
 
-          <button className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={changingPassword}>
-            {changingPassword ? "Updating..." : "Change Password"}
-          </button>
+          <div className="flex justify-center pt-1">
+            <button
+              className="inline-flex w-full max-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={changingPassword}
+            >
+              {changingPassword ? "Updating..." : "Change Password"}
+            </button>
+          </div>
         </form>
       </BlockCard>
     </PortalFrame>

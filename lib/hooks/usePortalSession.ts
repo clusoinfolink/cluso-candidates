@@ -55,7 +55,7 @@ export function usePortalSession() {
       return;
     }
 
-    router.push("/dashboard/profile");
+    router.push("/dashboard/profile?focus=password-change");
   }, [pathname, router, sessionQuery.data]);
 
   async function logout() {
