@@ -114,6 +114,10 @@ export default function CandidateProfilePage() {
   }, [me]);
 
   useEffect(() => {
+    if (loading || profileLoading) {
+      return;
+    }
+
     const shouldFocusPasswordSection =
       Boolean(me?.mustChangePassword) ||
       new URLSearchParams(window.location.search).get("focus") === "password-change";
@@ -124,20 +128,31 @@ export default function CandidateProfilePage() {
 
     setHighlightPasswordSection(true);
 
-    const timer = window.setTimeout(() => {
+    let attempts = 0;
+    const maxAttempts = 8;
+    const scrollAndFocus = () => {
       const passwordSection = document.getElementById("change-password-section");
-      passwordSection?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!passwordSection) {
+        attempts += 1;
+        if (attempts < maxAttempts) {
+          window.setTimeout(scrollAndFocus, 100);
+        }
+        return;
+      }
+
+      passwordSection.scrollIntoView({ behavior: "smooth", block: "start" });
 
       const currentPasswordInput = document.getElementById("current-password");
       if (currentPasswordInput instanceof HTMLInputElement) {
         currentPasswordInput.focus({ preventScroll: true });
       }
-    }, 120);
+    };
 
+    const timer = window.setTimeout(scrollAndFocus, 120);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [me?.mustChangePassword]);
+  }, [loading, profileLoading, me?.mustChangePassword]);
 
   if (loading || !me || profileLoading) {
     return (
@@ -249,6 +264,85 @@ export default function CandidateProfilePage() {
       title="Profile"
       subtitle="Manage your profile, work experience, education, and account security."
     >
+      <BlockCard
+        as="article"
+        interactive
+        id="change-password-section"
+        className={`${SECTION_CARD_CLASS} transition-all ${
+          highlightPasswordSection ? "ring-4 ring-amber-300/80 shadow-lg shadow-amber-200/40" : ""
+        }`}
+      >
+        <BlockTitle
+          icon={<KeyRound size={14} />}
+          title="Change Password"
+          subtitle="Use a strong password and avoid reusing old credentials."
+        />
+
+        {me.mustChangePassword ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+            This is your first login. Please change your password to continue using the portal.
+          </p>
+        ) : null}
+
+        <form onSubmit={changePassword} className="form-grid">
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor="current-password">
+              Current Password
+            </label>
+            <input
+              id="current-password"
+              className={FIELD_INPUT_CLASS}
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor="new-password">
+              New Password
+            </label>
+            <input
+              id="new-password"
+              className={FIELD_INPUT_CLASS}
+              type="password"
+              minLength={6}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor="confirm-password">
+              Confirm New Password
+            </label>
+            <input
+              id="confirm-password"
+              className={FIELD_INPUT_CLASS}
+              type="password"
+              minLength={6}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          {passwordMessage ? <p className={`inline-alert ${getAlertTone(passwordMessage)}`}>{passwordMessage}</p> : null}
+
+          <div className="flex justify-center pt-1">
+            <button
+              className="inline-flex w-full max-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={changingPassword}
+            >
+              {changingPassword ? "Updating..." : "Change Password"}
+            </button>
+          </div>
+        </form>
+      </BlockCard>
+
       <form onSubmit={saveProfile} className="space-y-6">
         <BlockCard as="article" interactive className={SECTION_CARD_CLASS}>
           <BlockTitle
@@ -432,85 +526,6 @@ export default function CandidateProfilePage() {
           {profileSaving ? "Saving..." : "Save profile"}
         </button>
       </form>
-
-      <BlockCard
-        as="article"
-        interactive
-        id="change-password-section"
-        className={`${SECTION_CARD_CLASS} mt-8 transition-all ${
-          highlightPasswordSection ? "ring-4 ring-amber-300/80 shadow-lg shadow-amber-200/40" : ""
-        }`}
-      >
-        <BlockTitle
-          icon={<KeyRound size={14} />}
-          title="Change Password"
-          subtitle="Use a strong password and avoid reusing old credentials."
-        />
-
-        {me.mustChangePassword ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-            This is your first login. Please change your password to continue using the portal.
-          </p>
-        ) : null}
-
-        <form onSubmit={changePassword} className="form-grid">
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="current-password">
-              Current Password
-            </label>
-            <input
-              id="current-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="new-password">
-              New Password
-            </label>
-            <input
-              id="new-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              minLength={6}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="confirm-password">
-              Confirm New Password
-            </label>
-            <input
-              id="confirm-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              minLength={6}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          {passwordMessage ? <p className={`inline-alert ${getAlertTone(passwordMessage)}`}>{passwordMessage}</p> : null}
-
-          <div className="flex justify-center pt-1">
-            <button
-              className="inline-flex w-full max-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              type="submit"
-              disabled={changingPassword}
-            >
-              {changingPassword ? "Updating..." : "Change Password"}
-            </button>
-          </div>
-        </form>
-      </BlockCard>
     </PortalFrame>
   );
 }
