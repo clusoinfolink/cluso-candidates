@@ -1393,7 +1393,8 @@ function OrdersPageContent() {
     setSubmittingRequestId(item._id);
 
     const missingFieldTargetKeys = new Set<string>();
-    let firstMissingFieldTarget: { key: string; message: string } | null = null;
+    let firstMissingFieldTargetKey = "";
+    let firstMissingFieldTargetMessage = "";
 
     const markMissingField = (
       serviceId: string,
@@ -1410,11 +1411,9 @@ function OrdersPageContent() {
       );
       missingFieldTargetKeys.add(targetKey);
 
-      if (!firstMissingFieldTarget) {
-        firstMissingFieldTarget = {
-          key: targetKey,
-          message,
-        };
+      if (!firstMissingFieldTargetKey) {
+        firstMissingFieldTargetKey = targetKey;
+        firstMissingFieldTargetMessage = message;
       }
     };
 
@@ -1591,7 +1590,7 @@ function OrdersPageContent() {
       }),
     }));
 
-    if (firstMissingFieldTarget) {
+    if (firstMissingFieldTargetKey) {
       setSubmittingRequestId("");
       setExpandedRequestId(item._id);
       setMissingFieldTargets(
@@ -1600,9 +1599,9 @@ function OrdersPageContent() {
           return acc;
         }, {}),
       );
-      setMessage(firstMissingFieldTarget.message);
+      setMessage(firstMissingFieldTargetMessage);
       window.setTimeout(() => {
-        focusFieldTarget(firstMissingFieldTarget.key);
+        focusFieldTarget(firstMissingFieldTargetKey);
       }, 80);
       return;
     }
