@@ -264,86 +264,87 @@ export default function CandidateProfilePage() {
       title="Profile"
       subtitle="Manage your profile, work experience, education, and account security."
     >
-      <BlockCard
-        as="article"
-        interactive
-        id="change-password-section"
-        className={`${SECTION_CARD_CLASS} transition-all ${
-          highlightPasswordSection ? "ring-4 ring-amber-300/80 shadow-lg shadow-amber-200/40" : ""
-        }`}
-      >
-        <BlockTitle
-          icon={<KeyRound size={14} />}
-          title="Change Password"
-          subtitle="Use a strong password and avoid reusing old credentials."
-        />
+      <div className="space-y-4 md:space-y-6">
+        <BlockCard
+          as="article"
+          interactive
+          id="change-password-section"
+          className={`${SECTION_CARD_CLASS} transition-all ${
+            highlightPasswordSection ? "ring-4 ring-amber-300/80 shadow-lg shadow-amber-200/40" : ""
+          }`}
+        >
+          <BlockTitle
+            icon={<KeyRound size={14} />}
+            title="Change Password"
+            subtitle="Use a strong password and avoid reusing old credentials."
+          />
 
-        {me.mustChangePassword ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-            This is your first login. Please change your password to continue using the portal.
-          </p>
-        ) : null}
+          {me.mustChangePassword ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+              This is your first login. Please change your password to continue using the portal.
+            </p>
+          ) : null}
 
-        <form onSubmit={changePassword} className="form-grid">
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="current-password">
-              Current Password
-            </label>
-            <input
-              id="current-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-            />
-          </div>
+          <form onSubmit={changePassword} className="form-grid">
+            <div>
+              <label className={FIELD_LABEL_CLASS} htmlFor="current-password">
+                Current Password
+              </label>
+              <input
+                id="current-password"
+                className={FIELD_INPUT_CLASS}
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+              />
+            </div>
 
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="new-password">
-              New Password
-            </label>
-            <input
-              id="new-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              minLength={6}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-            />
-          </div>
+            <div>
+              <label className={FIELD_LABEL_CLASS} htmlFor="new-password">
+                New Password
+              </label>
+              <input
+                id="new-password"
+                className={FIELD_INPUT_CLASS}
+                type="password"
+                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
+            </div>
 
-          <div>
-            <label className={FIELD_LABEL_CLASS} htmlFor="confirm-password">
-              Confirm New Password
-            </label>
-            <input
-              id="confirm-password"
-              className={FIELD_INPUT_CLASS}
-              type="password"
-              minLength={6}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
+            <div>
+              <label className={FIELD_LABEL_CLASS} htmlFor="confirm-password">
+                Confirm New Password
+              </label>
+              <input
+                id="confirm-password"
+                className={FIELD_INPUT_CLASS}
+                type="password"
+                minLength={6}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
 
-          {passwordMessage ? <p className={`inline-alert ${getAlertTone(passwordMessage)}`}>{passwordMessage}</p> : null}
+            {passwordMessage ? <p className={`inline-alert ${getAlertTone(passwordMessage)}`}>{passwordMessage}</p> : null}
 
-          <div className="flex justify-center pt-1">
-            <button
-              className="inline-flex w-full max-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              type="submit"
-              disabled={changingPassword}
-            >
-              {changingPassword ? "Updating..." : "Change Password"}
-            </button>
-          </div>
-        </form>
-      </BlockCard>
+            <div className="flex justify-center pt-1">
+              <button
+                className="inline-flex w-full max-w-[220px] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                type="submit"
+                disabled={changingPassword}
+              >
+                {changingPassword ? "Updating..." : "Change Password"}
+              </button>
+            </div>
+          </form>
+        </BlockCard>
 
-      <form onSubmit={saveProfile} className="space-y-6">
+        <form onSubmit={saveProfile} className="space-y-6">
         <BlockCard as="article" interactive className={SECTION_CARD_CLASS}>
           <BlockTitle
             icon={<UserRound size={14} />}
@@ -525,7 +526,8 @@ export default function CandidateProfilePage() {
         <button className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={profileSaving}>
           {profileSaving ? "Saving..." : "Save profile"}
         </button>
-      </form>
+        </form>
+      </div>
     </PortalFrame>
   );
 }
