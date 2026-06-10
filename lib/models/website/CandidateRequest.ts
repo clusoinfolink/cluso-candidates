@@ -12,11 +12,13 @@ interface ICandidateRequest {
   name: string;
   email: string;
   phone: string;
-  jobId?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  jobId?: any;
   jobTitle?: string;
   jobColor?: string;
   jobDescription?: string;
-  resumeDocumentId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  resumeDocumentId: any;
   resumeFileName: string;
   read: boolean;
   createdAt: Date;

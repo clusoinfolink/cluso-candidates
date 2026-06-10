@@ -1,24 +1,15 @@
 "use client";
 
-import { FormEvent, useState, useRef, useEffect, useCallback, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { LockKeyhole, Mail, Sparkles, KeyRound, ArrowLeft, ShieldCheck, Timer, Send, Eye, EyeOff, UserPlus, Phone, User, ChevronDown } from "lucide-react";
+import { LockKeyhole, Mail, Sparkles, KeyRound, ArrowLeft, ShieldCheck, Timer, Send, Eye, EyeOff } from "lucide-react";
 
-import { MOBILE_COUNTRY_CODE_OPTIONS } from "@/lib/mobilePhone";
-
-type LoginMode = "password" | "otp" | "signup";
+type LoginMode = "password" | "otp";
 type OtpStep = "email" | "verify";
-type SignupStep = "form" | "verify";
-
-const SIGNUP_COUNTRY_CODES = [
-  "+91",
-  ...MOBILE_COUNTRY_CODE_OPTIONS.filter((code) => code !== "+91"),
-];
 
 function LoginContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Shared
   const [email, setEmail] = useState("");
@@ -37,59 +28,7 @@ function LoginContent() {
   const [otpSentMessage, setOtpSentMessage] = useState("");
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Signup mode
-  const [signupStep, setSignupStep] = useState<SignupStep>("form");
-  const [signupName, setSignupName] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupPhone, setSignupPhone] = useState("");
-  const [signupCountryCode, setSignupCountryCode] = useState("+91");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [showSignupPassword, setShowSignupPassword] = useState(false);
-  const [signupOtpDigits, setSignupOtpDigits] = useState(["", "", "", "", "", ""]);
-  const [signupCountdown, setSignupCountdown] = useState(0);
-  const [signupOtpMessage, setSignupOtpMessage] = useState("");
-  const signupOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Custom Country Code Dropdown State
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Read from URL parameters to prefill signup
-  useEffect(() => {
-    const mode = searchParams.get("mode");
-    const name = searchParams.get("name");
-    const urlEmail = searchParams.get("email");
-    const phone = searchParams.get("phone");
-
-    if (mode === "signup") {
-      setLoginMode("signup");
-      if (name) setSignupName(name);
-      if (urlEmail) {
-        setSignupEmail(urlEmail);
-        setEmail(urlEmail);
-      }
-      if (phone) {
-        // Try to extract country code (e.g. +91 9876543210 or +919876543210)
-        const matches = phone.match(/^(\+\d{1,4})\s*(.*)$/);
-        if (matches) {
-          setSignupCountryCode(matches[1]);
-          setSignupPhone(matches[2].replace(/\D/g, ""));
-        } else {
-          setSignupPhone(phone.replace(/\D/g, ""));
-        }
-      }
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // Transformer Card Unfold Animation State
   const [cardHeight, setCardHeight] = useState<number | undefined>(undefined);
@@ -98,7 +37,7 @@ function LoginContent() {
   useEffect(() => {
     if (cardContentRef.current) {
       const resizeObserver = new ResizeObserver((entries) => {
-        for (let entry of entries) {
+        for (const entry of entries) {
           setCardHeight(entry.target.getBoundingClientRect().height);
         }
       });
@@ -122,20 +61,7 @@ function LoginContent() {
     return () => clearInterval(timer);
   }, [countdown]);
 
-  // Countdown timer for signup OTP resend
-  useEffect(() => {
-    if (signupCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setSignupCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [signupCountdown]);
+
 
   // ---------- Password Login ----------
   async function onPasswordSubmit(e: FormEvent<HTMLFormElement>) {
@@ -219,147 +145,44 @@ function LoginContent() {
   }
 
   // ---------- OTP: Verify ----------
-  async function verifyOtp(code?: string) {
-    const otp = typeof code === "string" ? code : otpDigits.join("");
-    if (otp.length !== 6) {
-      setError("Please enter the complete 6-digit code.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const res = await fetch("/api/auth/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error || "Verification failed. Please try again.");
-        setOtpDigits(["", "", "", "", "", ""]);
-        setTimeout(() => otpInputRefs.current[0]?.focus(), 50);
+  const verifyOtp = useCallback(
+    async (code?: string) => {
+      const otp = typeof code === "string" ? code : otpDigits.join("");
+      if (otp.length !== 6) {
+        setError("Please enter the complete 6-digit code.");
         return;
       }
 
-      const data = (await res.json()) as { mustChangePassword?: boolean };
-      router.push(data.mustChangePassword ? "/dashboard/profile?focus=password-change" : "/dashboard");
-    } catch {
-      setError("Could not reach server. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
+      setLoading(true);
+      setError("");
 
-  // ---------- Signup: Submit ----------
-  async function onSignupSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
+      try {
+        const res = await fetch("/api/auth/otp/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, otp }),
+        });
 
-    try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: signupName,
-          email: signupEmail,
-          phone: `${signupCountryCode} ${signupPhone}`.trim(),
-          password: signupPassword,
-        }),
-      });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(data.error || "Verification failed. Please try again.");
+          setOtpDigits(["", "", "", "", "", ""]);
+          setTimeout(() => otpInputRefs.current[0]?.focus(), 50);
+          return;
+        }
 
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error || "Signup failed. Please try again.");
-        return;
+        const data = (await res.json()) as { mustChangePassword?: boolean };
+        router.push(data.mustChangePassword ? "/dashboard/profile?focus=password-change" : "/dashboard");
+      } catch {
+        setError("Could not reach server. Please try again.");
+      } finally {
+        setLoading(false);
       }
+    },
+    [otpDigits, email, router],
+  );
 
-      setSignupStep("verify");
-      setSignupOtpDigits(["", "", "", "", "", ""]);
-      setSignupCountdown(300);
-      setSignupOtpMessage("Verification code sent to your email.");
 
-      setTimeout(() => {
-        signupOtpRefs.current[0]?.focus();
-      }, 100);
-    } catch {
-      setError("Could not reach server. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ---------- Signup: Verify OTP ----------
-  async function verifySignupOtp(code?: string) {
-    const otp = typeof code === "string" ? code : signupOtpDigits.join("");
-    if (otp.length !== 6) {
-      setError("Please enter the complete 6-digit code.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const res = await fetch("/api/auth/signup/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: signupEmail, otp }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error || "Verification failed. Please try again.");
-        setSignupOtpDigits(["", "", "", "", "", ""]);
-        setTimeout(() => signupOtpRefs.current[0]?.focus(), 50);
-        return;
-      }
-
-      router.push("/dashboard");
-    } catch {
-      setError("Could not reach server. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ---------- Signup: Resend OTP ----------
-  async function resendSignupOtp() {
-    setLoading(true);
-    setError("");
-    setSignupOtpMessage("");
-
-    try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: signupName,
-          email: signupEmail,
-          phone: `${signupCountryCode} ${signupPhone}`.trim(),
-          password: signupPassword,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error || "Failed to resend OTP. Please try again.");
-        return;
-      }
-
-      setSignupOtpDigits(["", "", "", "", "", ""]);
-      setSignupCountdown(300);
-      setSignupOtpMessage("New verification code sent to your email.");
-      setTimeout(() => signupOtpRefs.current[0]?.focus(), 100);
-    } catch {
-      setError("Could not reach server. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   // ---------- OTP: Digit Input Handling ----------
   const handleOtpChange = useCallback(
@@ -385,7 +208,7 @@ function LoginContent() {
         }
       }
     },
-    [otpDigits, email],
+    [otpDigits, verifyOtp],
   );
 
   const handleOtpKeyDown = useCallback(
@@ -398,7 +221,7 @@ function LoginContent() {
         verifyOtp(complete);
       }
     },
-    [otpDigits, email],
+    [otpDigits, verifyOtp],
   );
 
   const handleOtpPaste = useCallback(
@@ -422,66 +245,10 @@ function LoginContent() {
         setTimeout(() => verifyOtp(pasted), 50);
       }
     },
-    [email],
+    [verifyOtp],
   );
 
-  // ---------- Signup OTP: Digit Input Handling ----------
-  const handleSignupOtpChange = useCallback(
-    (index: number, value: string) => {
-      const digit = value.replace(/\D/g, "").slice(-1);
-      const newDigits = [...signupOtpDigits];
-      newDigits[index] = digit;
-      setSignupOtpDigits(newDigits);
-      setError("");
 
-      if (digit && index < 5) {
-        signupOtpRefs.current[index + 1]?.focus();
-      }
-
-      if (digit && index === 5) {
-        const complete = newDigits.join("");
-        if (complete.length === 6) {
-          setTimeout(() => verifySignupOtp(complete), 50);
-        }
-      }
-    },
-    [signupOtpDigits, signupEmail],
-  );
-
-  const handleSignupOtpKeyDown = useCallback(
-    (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Backspace" && !signupOtpDigits[index] && index > 0) {
-        signupOtpRefs.current[index - 1]?.focus();
-      }
-      if (e.key === "Enter") {
-        const complete = signupOtpDigits.join("");
-        verifySignupOtp(complete);
-      }
-    },
-    [signupOtpDigits, signupEmail],
-  );
-
-  const handleSignupOtpPaste = useCallback(
-    (e: React.ClipboardEvent<HTMLInputElement>) => {
-      e.preventDefault();
-      const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-      if (!pasted) return;
-
-      const newDigits = ["", "", "", "", "", ""];
-      for (let i = 0; i < pasted.length; i++) {
-        newDigits[i] = pasted[i];
-      }
-      setSignupOtpDigits(newDigits);
-
-      const nextIndex = Math.min(pasted.length, 5);
-      signupOtpRefs.current[nextIndex]?.focus();
-
-      if (pasted.length === 6) {
-        setTimeout(() => verifySignupOtp(pasted), 50);
-      }
-    },
-    [signupEmail],
-  );
 
   // ---------- Mode switching ----------
   function switchMode(mode: LoginMode) {
@@ -491,11 +258,6 @@ function LoginContent() {
     setOtpDigits(["", "", "", "", "", ""]);
     setOtpSentMessage("");
     setCountdown(0);
-    // Reset signup state
-    setSignupStep("form");
-    setSignupOtpDigits(["", "", "", "", "", ""]);
-    setSignupOtpMessage("");
-    setSignupCountdown(0);
   }
 
   function formatCountdown(seconds: number) {
@@ -560,46 +322,42 @@ function LoginContent() {
           
           <div className="mb-8 relative z-10">
             <h2 className="text-4xl font-extrabold text-gray-900 mb-3 tracking-tight">
-              {loginMode === "signup" ? "Create Account" : "Access Portal"}
+              Access Portal
             </h2>
             <p className="text-gray-500 text-base font-medium">
-              {loginMode === "signup"
-                ? "Sign up to create your candidate profile and get started."
-                : "Please authenticate to continue to your candidate dashboard."}
+              Please authenticate to continue to your candidate dashboard.
             </p>
           </div>
 
           {/* Login Mode Tabs */}
-          {loginMode !== "signup" && (
-            <div className="relative z-10 mb-8">
-              <div className="flex bg-gray-100/80 rounded-xl p-1 gap-1">
-                <button
-                  type="button"
-                  onClick={() => switchMode("password")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-lg text-sm font-bold tracking-wide transition-all duration-300 ${
-                    loginMode === "password"
-                      ? "bg-white text-gray-900 shadow-md shadow-gray-200/60"
-                      : "text-gray-500 hover:text-gray-700 hover:bg-white/40"
-                  }`}
-                >
-                  <LockKeyhole size={16} strokeWidth={2.5} />
-                  Password
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchMode("otp")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-lg text-sm font-bold tracking-wide transition-all duration-300 ${
-                    loginMode === "otp"
-                      ? "bg-white text-gray-900 shadow-md shadow-gray-200/60"
-                      : "text-gray-500 hover:text-gray-700 hover:bg-white/40"
-                  }`}
-                >
-                  <KeyRound size={16} strokeWidth={2.5} />
-                  OTP Login
-                </button>
-              </div>
+          <div className="relative z-10 mb-8">
+            <div className="flex bg-gray-100/80 rounded-xl p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => switchMode("password")}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-lg text-sm font-bold tracking-wide transition-all duration-300 ${
+                  loginMode === "password"
+                    ? "bg-white text-gray-900 shadow-md shadow-gray-200/60"
+                    : "text-gray-500 hover:text-gray-700 hover:bg-white/40"
+                }`}
+              >
+                <LockKeyhole size={16} strokeWidth={2.5} />
+                Password
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode("otp")}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-lg text-sm font-bold tracking-wide transition-all duration-300 ${
+                  loginMode === "otp"
+                    ? "bg-white text-gray-900 shadow-md shadow-gray-200/60"
+                    : "text-gray-500 hover:text-gray-700 hover:bg-white/40"
+                }`}
+              >
+                <KeyRound size={16} strokeWidth={2.5} />
+                OTP Login
+              </button>
             </div>
-          )}
+          </div>
 
           {/* ==================== PASSWORD MODE ==================== */}
           {loginMode === "password" && (
@@ -653,15 +411,6 @@ function LoginContent() {
                 </div>
               </div>
 
-              {error && (
-                <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm flex items-start gap-3 text-red-700 text-sm animate-in fade-in slide-in-from-left-2 duration-300">
-                  <div className="mt-0.5">
-                    <LockKeyhole size={18} className="text-red-500" />
-                  </div>
-                  <div className="font-medium leading-relaxed">{error}</div>
-                </div>
-              )}
-
               <button 
                 className="w-full py-4.5 px-6 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold text-lg rounded-xl shadow-[0_8px_20px_-6px_rgba(59,130,246,0.6)] hover:shadow-[0_12px_24px_-6px_rgba(59,130,246,0.7)] transition-all duration-200 transform hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed mt-8 flex items-center justify-center gap-3 tracking-wide" 
                 disabled={loading}
@@ -669,13 +418,7 @@ function LoginContent() {
                 <Sparkles size={22} className={loading ? "animate-spin" : ""} strokeWidth={2.5} />
                 {loading ? "Authenticating Session..." : "Initialize Session"}
               </button>
-              
-              <div className="mt-8 text-center border-t border-gray-100 pt-6">
-                <p className="text-sm text-gray-500 font-medium">
-                  Don&apos;t have an account? <button type="button" onClick={() => switchMode("signup")} className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-all">Sign up here</button>
-                </p>
-              </div>
-            </form>
+              </form>
           )}
 
           {/* ==================== OTP MODE ==================== */}
@@ -714,15 +457,6 @@ function LoginContent() {
                     </div>
                   </div>
 
-                  {error && (
-                    <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm flex items-start gap-3 text-red-700 text-sm">
-                      <div className="mt-0.5">
-                        <ShieldCheck size={18} className="text-red-500" />
-                      </div>
-                      <div className="font-medium leading-relaxed">{error}</div>
-                    </div>
-                  )}
-
                   <button
                     type="submit"
                     className="w-full py-4.5 px-6 bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl shadow-[0_8px_20px_-6px_rgba(16,185,129,0.5)] hover:shadow-[0_12px_24px_-6px_rgba(16,185,129,0.6)] transition-all duration-200 transform hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed mt-6 flex items-center justify-center gap-3 tracking-wide"
@@ -731,12 +465,6 @@ function LoginContent() {
                     <Send size={20} className={loading ? "animate-pulse" : ""} strokeWidth={2.5} />
                     {loading ? "Sending Code..." : "Send Verification Code"}
                   </button>
-
-                  <div className="mt-8 text-center border-t border-gray-100 pt-6">
-                    <p className="text-sm text-gray-500 font-medium">
-                      Don&apos;t have an account? <button type="button" onClick={() => switchMode("signup")} className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-all">Sign up here</button>
-                    </p>
-                  </div>
                 </form>
               )}
 
@@ -853,288 +581,7 @@ function LoginContent() {
             </div>
           )}
 
-          {/* ==================== SIGNUP MODE ==================== */}
-          {loginMode === "signup" && (
-            <div className="space-y-7 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              {/* Signup Step 1: Registration Form */}
-              {signupStep === "form" && (
-                <form onSubmit={onSignupSubmit} className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-50 to-blue-50 border border-violet-100">
-                      <UserPlus size={22} className="text-violet-600" strokeWidth={2.5} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">New Candidate Account</p>
-                      <p className="text-xs text-gray-500">We&apos;ll verify your email with a 6-digit code</p>
-                    </div>
-                  </div>
 
-                  {/* Full Name */}
-                  <div className="space-y-2 group">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-500 group-focus-within:text-blue-600 transition-colors flex items-center gap-2" htmlFor="signup-name">
-                      <User size={15} strokeWidth={2.5} /> Full Name
-                    </label>
-                    <div className="relative flex items-center">
-                      <div className="absolute left-4 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                        <User size={20} strokeWidth={2} />
-                      </div>
-                      <input
-                        id="signup-name"
-                        className="w-full bg-gray-50/50 border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold text-base hover:border-blue-300"
-                        type="text"
-                        placeholder="Name"
-                        value={signupName}
-                        onChange={(e) => setSignupName(e.target.value)}
-                        required
-                        minLength={2}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Email */}
-                  <div className="space-y-2 group">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-500 group-focus-within:text-blue-600 transition-colors flex items-center gap-2" htmlFor="signup-email">
-                      <Mail size={15} strokeWidth={2.5} /> Email Address
-                    </label>
-                    <div className="relative flex items-center">
-                      <div className="absolute left-4 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                        <Mail size={20} strokeWidth={2} />
-                      </div>
-                      <input
-                        id="signup-email"
-                        className="w-full bg-gray-50/50 border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold text-base hover:border-blue-300"
-                        type="email"
-                        placeholder="candidate@example.com"
-                        value={signupEmail}
-                        onChange={(e) => setSignupEmail(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  {/* Phone */}
-                  <div className="space-y-2 group">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-500 group-focus-within:text-blue-600 transition-colors flex items-center gap-2" htmlFor="signup-phone">
-                      <Phone size={15} strokeWidth={2.5} /> Phone Number
-                    </label>
-                    <div className="flex gap-2">
-                      {/* Custom dropdown */}
-                      <div ref={dropdownRef} className="relative w-28 shrink-0 select-none">
-                        <button
-                          type="button"
-                          onClick={() => setDropdownOpen((prev) => !prev)}
-                          className="w-full flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/50 border-2 border-gray-200 dark:border-slate-700 rounded-xl px-3 py-3.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold text-base hover:border-blue-300 dark:hover:border-slate-600 cursor-pointer"
-                        >
-                          <span className="flex-1 text-center pr-1">{signupCountryCode}</span>
-                          <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
-                        </button>
-                        {dropdownOpen && (
-                          <div className="absolute left-0 mt-1.5 w-full bg-white dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-700 rounded-xl shadow-lg z-50 overflow-y-auto max-h-[180px] py-1 divide-y divide-gray-50 dark:divide-slate-700/50 animate-in fade-in slide-in-from-top-1 duration-150">
-                            {SIGNUP_COUNTRY_CODES.map((code) => (
-                              <button
-                                key={code}
-                                type="button"
-                                onClick={() => {
-                                  setSignupCountryCode(code);
-                                  setDropdownOpen(false);
-                                }}
-                                className={`w-full text-center py-2 px-3 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-900 dark:text-gray-100 font-semibold transition-colors text-sm ${
-                                  signupCountryCode === code ? "bg-blue-50/70 dark:bg-slate-700/70 text-blue-600 dark:text-blue-400 font-bold" : ""
-                                }`}
-                              >
-                                {code}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="relative flex-1 flex items-center">
-                        <div className="absolute left-4 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                          <Phone size={20} strokeWidth={2} />
-                        </div>
-                        <input
-                          id="signup-phone"
-                          className="w-full bg-gray-50/50 border-2 border-gray-200 rounded-xl pl-12 pr-4 py-3.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold text-base hover:border-blue-300"
-                          type="tel"
-                          placeholder="9876543210"
-                          value={signupPhone}
-                          onChange={(e) => setSignupPhone(e.target.value)}
-                          required
-                          minLength={10}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Password */}
-                  <div className="space-y-2 group">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-500 group-focus-within:text-blue-600 transition-colors flex items-center gap-2" htmlFor="signup-password">
-                      <LockKeyhole size={15} strokeWidth={2.5} /> Password
-                    </label>
-                    <div className="relative flex items-center">
-                      <div className="absolute left-4 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                        <LockKeyhole size={20} strokeWidth={2} />
-                      </div>
-                      <input
-                        id="signup-password"
-                        className="w-full bg-gray-50/50 border-2 border-gray-200 rounded-xl pl-12 pr-12 py-3.5 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold text-base tracking-wide hover:border-blue-300"
-                        type={showSignupPassword ? "text" : "password"}
-                        placeholder="Minimum 6 characters"
-                        value={signupPassword}
-                        onChange={(e) => setSignupPassword(e.target.value)}
-                        required
-                        minLength={6}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowSignupPassword((prev) => !prev)}
-                        className="absolute right-4 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
-                        style={{ background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}
-                        aria-label={showSignupPassword ? "Hide password" : "Show password"}
-                      >
-                        {showSignupPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {error && (
-                    <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm flex items-start gap-3 text-red-700 text-sm animate-in fade-in slide-in-from-left-2 duration-300">
-                      <div className="mt-0.5">
-                        <UserPlus size={18} className="text-red-500" />
-                      </div>
-                      <div className="font-medium leading-relaxed">{error}</div>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="w-full py-4 px-6 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl shadow-[0_8px_20px_-6px_rgba(139,92,246,0.5)] hover:shadow-[0_12px_24px_-6px_rgba(139,92,246,0.6)] transition-all duration-200 transform hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed mt-4 flex items-center justify-center gap-3 tracking-wide"
-                    disabled={loading}
-                  >
-                    <Send size={20} className={loading ? "animate-pulse" : ""} strokeWidth={2.5} />
-                    {loading ? "Sending Verification..." : "Create Account & Verify"}
-                  </button>
-
-                  <div className="mt-6 text-center border-t border-gray-100 pt-6">
-                    <p className="text-sm text-gray-500 font-medium">
-                      Already have an account? <button type="button" onClick={() => switchMode("password")} className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-all">Login here</button>
-                    </p>
-                  </div>
-                </form>
-              )}
-
-              {/* Signup Step 2: OTP Verification */}
-              {signupStep === "verify" && (
-                <div className="space-y-7 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                  {/* Back button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSignupStep("form");
-                      setError("");
-                      setSignupOtpDigits(["", "", "", "", "", ""]);
-                      setSignupOtpMessage("");
-                    }}
-                    className="flex items-center gap-2 text-sm text-gray-500 hover:text-blue-600 font-semibold transition-colors group"
-                  >
-                    <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-                    Back to form
-                  </button>
-
-                  {/* Success message */}
-                  {signupOtpMessage && (
-                    <div className="p-4 bg-emerald-50 border-l-4 border-emerald-500 rounded-r-xl shadow-sm flex items-start gap-3 text-emerald-700 text-sm">
-                      <div className="mt-0.5">
-                        <ShieldCheck size={18} className="text-emerald-500" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{signupOtpMessage}</p>
-                        <p className="text-emerald-600/70 text-xs mt-1">Sent to <strong>{signupEmail}</strong></p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* OTP digit inputs */}
-                  <div>
-                    <label className="text-sm font-bold uppercase tracking-wider text-gray-500 flex items-center gap-3 mb-4">
-                      <KeyRound size={18} strokeWidth={2.5} /> Enter Verification Code
-                    </label>
-                    <div className="flex justify-center gap-3">
-                      {signupOtpDigits.map((digit, index) => (
-                        <input
-                          key={index}
-                          ref={(el) => { signupOtpRefs.current[index] = el; }}
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
-                          maxLength={1}
-                          value={digit}
-                          onChange={(e) => handleSignupOtpChange(index, e.target.value)}
-                          onKeyDown={(e) => handleSignupOtpKeyDown(index, e)}
-                          onPaste={index === 0 ? handleSignupOtpPaste : undefined}
-                          className={`w-14 h-16 text-center text-2xl font-extrabold rounded-xl border-2 transition-all duration-200 focus:outline-none focus:ring-4 ${
-                            digit
-                              ? "border-violet-400 bg-violet-50/50 text-violet-900 focus:ring-violet-500/20 focus:border-violet-500"
-                              : "border-gray-200 bg-gray-50/50 text-gray-900 focus:ring-violet-500/10 focus:border-violet-500 hover:border-violet-300"
-                          }`}
-                          aria-label={`Digit ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Countdown timer */}
-                  {signupCountdown > 0 && (
-                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                      <Timer size={16} className="text-amber-500" />
-                      <span className="font-medium">
-                        Code expires in <span className="text-amber-600 font-bold tabular-nums">{formatCountdown(signupCountdown)}</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {error && (
-                    <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-sm flex items-start gap-3 text-red-700 text-sm">
-                      <div className="mt-0.5">
-                        <ShieldCheck size={18} className="text-red-500" />
-                      </div>
-                      <div className="font-medium leading-relaxed">{error}</div>
-                    </div>
-                  )}
-
-                  {/* Verify button */}
-                  <button
-                    type="button"
-                    onClick={() => verifySignupOtp()}
-                    className="w-full py-4.5 px-6 bg-gradient-to-r from-violet-500 to-blue-500 hover:from-violet-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl shadow-[0_8px_20px_-6px_rgba(139,92,246,0.5)] hover:shadow-[0_12px_24px_-6px_rgba(139,92,246,0.6)] transition-all duration-200 transform hover:-translate-y-1 active:translate-y-0 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-3 tracking-wide"
-                    disabled={loading || signupOtpDigits.join("").length !== 6}
-                  >
-                    <Sparkles size={22} className={loading ? "animate-spin" : ""} strokeWidth={2.5} />
-                    {loading ? "Creating Account..." : "Verify & Create Account"}
-                  </button>
-
-                  {/* Resend OTP */}
-                  <div className="text-center border-t border-gray-100 pt-6">
-                    <p className="text-sm text-gray-500 font-medium">
-                      Didn&apos;t receive the code?{" "}
-                      {signupCountdown > 0 ? (
-                        <span className="text-gray-400">Resend in {formatCountdown(signupCountdown)}</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={resendSignupOtp}
-                          disabled={loading}
-                          className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-all disabled:opacity-50"
-                        >
-                          Resend Code
-                        </button>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
             </div>
           </div>
         </div>
@@ -1145,8 +592,6 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
-      <LoginContent />
-    </Suspense>
+    <LoginContent />
   );
 }

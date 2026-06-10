@@ -493,6 +493,50 @@ function normalizeAnswerValue(field: ServiceFormField, rawValue: string) {
   return nextValue;
 }
 
+function resolvePersonalDetailsCopyValue(field: ServiceFormField, sourceValue: string) {
+  const normalizedSourceValue = sourceValue.trim();
+  if (!normalizedSourceValue) {
+    return null;
+  }
+
+  if (field.fieldType === "dropdown") {
+    const options = field.dropdownOptions ?? [];
+    const sourceLower = normalizedSourceValue.toLowerCase();
+
+    // 1. Exact case-insensitive match
+    const exactMatch = options.find(
+      (option) => option.trim().toLowerCase() === sourceLower,
+    );
+    if (exactMatch) return exactMatch;
+
+    // 2. Partial match — source value is contained in an option (e.g. "male" → "Male")
+    const partialMatch = options.find(
+      (option) => option.trim().toLowerCase().includes(sourceLower),
+    );
+    if (partialMatch) return partialMatch;
+
+    // 3. Reverse partial — option label is contained in the source value
+    const reverseMatch = options.find(
+      (option) => sourceLower.includes(option.trim().toLowerCase()),
+    );
+    return reverseMatch ?? null;
+  }
+
+  if (field.fieldType === "mobile") {
+    const parsedMobileValue = parseMobileAnswerValue(
+      normalizedSourceValue,
+      DEFAULT_MOBILE_COUNTRY_CODE,
+    );
+    if (!hasMobileNumberDigits(parsedMobileValue.number)) {
+      return null;
+    }
+
+    return serializeMobileAnswerValue(parsedMobileValue);
+  }
+
+  return normalizeAnswerValue(field, normalizedSourceValue);
+}
+
 function getConstraintHint(field: ServiceFormField) {
   if (!supportsLengthConstraints(field)) {
     return "";
@@ -663,7 +707,7 @@ function OrdersPageContent() {
     digiLockerAutoFillDone.current = true;
 
     setFormDrafts((prevDrafts) => {
-      let nextDrafts = { ...prevDrafts };
+      const nextDrafts = { ...prevDrafts };
       let draftsChanged = false;
 
       for (const item of pendingItems) {
@@ -1126,49 +1170,7 @@ function OrdersPageContent() {
     }
   }
 
-  function resolvePersonalDetailsCopyValue(field: ServiceFormField, sourceValue: string) {
-    const normalizedSourceValue = sourceValue.trim();
-    if (!normalizedSourceValue) {
-      return null;
-    }
 
-    if (field.fieldType === "dropdown") {
-      const options = field.dropdownOptions ?? [];
-      const sourceLower = normalizedSourceValue.toLowerCase();
-
-      // 1. Exact case-insensitive match
-      const exactMatch = options.find(
-        (option) => option.trim().toLowerCase() === sourceLower,
-      );
-      if (exactMatch) return exactMatch;
-
-      // 2. Partial match — source value is contained in an option (e.g. "male" → "Male")
-      const partialMatch = options.find(
-        (option) => option.trim().toLowerCase().includes(sourceLower),
-      );
-      if (partialMatch) return partialMatch;
-
-      // 3. Reverse partial — option label is contained in the source value
-      const reverseMatch = options.find(
-        (option) => sourceLower.includes(option.trim().toLowerCase()),
-      );
-      return reverseMatch ?? null;
-    }
-
-    if (field.fieldType === "mobile") {
-      const parsedMobileValue = parseMobileAnswerValue(
-        normalizedSourceValue,
-        DEFAULT_MOBILE_COUNTRY_CODE,
-      );
-      if (!hasMobileNumberDigits(parsedMobileValue.number)) {
-        return null;
-      }
-
-      return serializeMobileAnswerValue(parsedMobileValue);
-    }
-
-    return normalizeAnswerValue(field, normalizedSourceValue);
-  }
 
   function applyPersonalDetailsCopyToField(
     item: RequestItem,
