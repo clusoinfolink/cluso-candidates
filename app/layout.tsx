@@ -11,8 +11,8 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Cluso Infolink Candidates Portal",
-  description: "Candidate portal for completing verification service forms",
+  title: "Cluso Candidate Workspace",
+  description: "Candidate workspace for completing verification service forms",
   icons: {
     icon: "/images/cluso-logo.png",
     shortcut: "/images/cluso-logo.png",

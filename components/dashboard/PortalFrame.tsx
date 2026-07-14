@@ -515,7 +515,7 @@ export function PortalFrame({ me, onLogout, title, subtitle, children }: PortalF
               <Menu size={18} />
             </button>
             <div style={{ display: "grid", gap: "0.15rem" }}>
-              <h1 className="admin-topbar-title">{title || "Candidate Panel"}</h1>
+              <h1 className="admin-topbar-title">{title || "Candidate Workspace"}</h1>
               {subtitle ? (
                 <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: "0.85rem" }}>{subtitle}</p>
               ) : null}
